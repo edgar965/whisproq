@@ -10,22 +10,36 @@ no GPU, no build step, no word quota.
 
 ## Features
 
-- **Types into whatever has focus** — clipboard-based paste (umlaut-safe),
-  with a typing fallback
-- **Free**: Groq's free tier covers ~2 hours of dictated audio per day,
-  no credit card required
+- **Types into whatever has focus** — Word, browser, WhatsApp, terminals
+  and CLI tools; clipboard-based paste (umlaut-safe) with typing fallback
+- **Configurable hotkey** (default **F10**): single key or combos like
+  `ctrl+space`, changeable at runtime via the gear dialog ⚙ — no restart
+- **Guided Groq key setup**: the installer asks for the free API key with
+  step-by-step instructions and opens the key page in your browser on
+  request; the key is re-read on every keypress, so a later
+  `setx GROQ_API_KEY` takes effect without restarting anything
+- **Autostart built in**: asked once at install, preserved across updates
+- **No Python environment needed**: the Setup EXE is fully self-contained —
+  no interpreter, no local models, no GPU, no build step, ~50 MB RAM
+- **Free, no word quota**: Groq's free tier covers ~2 hours of dictated
+  audio per day, no credit card required
+- **Fast**: the text lands ~0.5 s after releasing the key
+  (whisper-large-v3-turbo on Groq's cloud)
 - **Spoken punctuation (German)**: „Komma", „Punkt", „Fragezeichen",
   „neue Zeile" … converted deterministically — never doubled (if Whisper
   already emitted `.`, a spoken „Punkt" won't add a second one), and
   compounds like „Treffpunkt" stay intact
+- **Hallucination guards**: too-quiet or garbled recordings are rejected
+  with a „Nicht verstanden" overlay instead of typing foreign-language
+  nonsense into your document
 - **Live preview** (optional): an overlay shows the transcript *while* you
   speak, refreshed every few seconds
-- **Settings via gear icon ⚙** in the overlay: live preview on/off,
-  refresh interval, **configurable hotkey** (single key or combos like
-  `ctrl+space`) — applied instantly, no restart
-- **Tiny**: two dependencies (`keyboard`, `sounddevice`), audio + HTTP via
-  the Python standard library, ~50 MB RAM, single-instance guard
-- **Setup EXE** for machines without Python (PyInstaller + IExpress SFX)
+- **Clean install lifecycle**: appears under Windows **Installed Apps**,
+  uninstalls cleanly, and updating = just run the setup again (asks
+  nothing, keeps your settings)
+- **Small & hackable**: two dependencies (`keyboard`, `sounddevice`),
+  audio + HTTP via the Python standard library, single-instance guard,
+  rotating log + `last_utterance.wav` for diagnosis, MIT license
 
 ## Install
 
@@ -169,6 +183,16 @@ generates the IExpress SED with absolute paths and produces
 sprechen, **loslassen** → der Text erscheint nach ~0,5 s im aktiven Feld —
 auch in Terminals. Erkennung über Groqs kostenlose Cloud (Whisper
 large-v3-turbo, ~2 h Audio/Tag frei), Deutsch voreingestellt.
+
+**Vorteile auf einen Blick:** Hotkey frei konfigurierbar (Default F10,
+auch Kombis, ohne Neustart) · geführtes Setzen des Groq-Keys direkt im
+Setup (mit Anleitung, öffnet die Key-Seite auf Wunsch) · Autostart
+eingebaut · **keine Python-Umgebung nötig** (Setup-EXE ist eigenständig,
+keine lokalen Modelle, keine GPU) · kostenlos ohne Wort-Kontingent ·
+diktierte deutsche Satzzeichen · Halluzinations-Wächter statt
+Kauderwelsch im Text · erscheint unter „Installierte Apps" und ist
+sauber deinstallierbar · Updates fragen nichts und erhalten die
+Einstellungen.
 
 **Installation:** `Install\Whisproq_Setup.exe` doppelklicken (liegt direkt
 im Repo, kein Python nötig) — das Setup fragt den Groq-Key ab (Anleitung
