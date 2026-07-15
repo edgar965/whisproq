@@ -17,8 +17,11 @@ Write-Host "1/4 PyInstaller (onedir, noconsole) ..." -ForegroundColor Cyan
     --specpath (Join-Path $HERE "build") `
     (Join-Path $HERE "whisproq.py")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller fehlgeschlagen (Exit $LASTEXITCODE)" }
-Copy-Item (Join-Path $HERE "config.json") (Join-Path $HERE "dist\Whisproq\") -Force
+# BEWUSST keine config.json einpacken: die Defaults stehen im Code
+# (whisproq.py _cfg); die User-Config entsteht erst beim ersten Speichern
+# im Zahnrad-Dialog. So ueberschreibt ein Update nie echte Entscheidungen.
 Copy-Item (Join-Path $HERE "uninstall.ps1") (Join-Path $HERE "dist\Whisproq\") -Force
+Remove-Item (Join-Path $HERE "dist\Whisproq\config.json") -Force -ErrorAction SilentlyContinue
 
 Write-Host "2/4 Payload-Zip (Python-zipfile) ..." -ForegroundColor Cyan
 & $py (Join-Path $HERE "build\make_zip.py")

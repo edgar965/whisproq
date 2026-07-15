@@ -85,9 +85,11 @@ Hold the hotkey → the overlay appears top-right → click **⚙**:
 | Interval (s) | 3 | refresh rate of the preview |
 | Hotkey | `f10` | single key or combo: `f4`, `ctrl+space`, `alt+d` … |
 
-Your settings are stored in `%LOCALAPPDATA%\Whisproq\config.json` — the
-`config.json` in the program folder / repo only provides the defaults and
-is never written to:
+Defaults live in the code; a fresh installation has **no** `config.json`.
+The file is created in `%LOCALAPPDATA%\Whisproq\config.json` the first
+time you save something in the gear dialog — so updates can never
+overwrite a real decision. (The `config.json` in the repo is a
+documented example for the source/venv variant.) All keys:
 
 ```json
 {
@@ -134,7 +136,7 @@ generates the IExpress SED with absolute paths and produces
 | `Install/Whisproq_Setup.exe` | **the distributable setup** (one file, no Python needed) |
 | `whisproq.py` | the tool (hotkey, recording, Groq upload, overlay, paste) |
 | `punctuation.py` | German punctuation converter + tests |
-| `config.json` | default settings (your own live in `%LOCALAPPDATA%\Whisproq`) |
+| `config.json` | defaults example (your settings: `%LOCALAPPDATA%\Whisproq\config.json`, created on first ⚙-save) |
 | `install.bat` / `install.ps1` | source install (venv, key, autostart) |
 | `uninstall.ps1` | uninstaller (also reachable via Windows Settings → Apps) |
 | `build.ps1` + `build/` | Setup-EXE build (PyInstaller → zip → IExpress) |

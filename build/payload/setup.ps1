@@ -27,14 +27,14 @@ Get-CimInstance Win32_Process -Filter "Name like 'pythonw%'" -ErrorAction Silent
 Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "DiktatF10" -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 800
 
-# --- Programm entpacken (Update: User-Einstellungen bewahren) ---
-$cfgPath = Join-Path $dst "config.json"
-$cfgBak = if ($update -and (Test-Path $cfgPath)) { Get-Content $cfgPath -Raw } else { $null }
+# --- Programm entpacken ---
+# Das Zip enthaelt KEINE config.json (Defaults stehen im Code; die
+# User-Config entsteht erst beim Speichern im Zahnrad) — ein Update kann
+# vorhandene Einstellungen daher gar nicht ueberschreiben.
 New-Item -ItemType Directory -Force -Path $dst | Out-Null
 Expand-Archive -Path (Join-Path $PSScriptRoot "Whisproq.zip") -DestinationPath $dst -Force
-if ($cfgBak) {
-    Set-Content -Path $cfgPath -Value $cfgBak -Encoding UTF8
-    Write-Host "Programm aktualisiert (Einstellungen uebernommen)." -ForegroundColor Green
+if ($update) {
+    Write-Host "Programm aktualisiert (Einstellungen bleiben unberuehrt)." -ForegroundColor Green
 } else {
     Write-Host "Programm entpackt." -ForegroundColor Green
 }
