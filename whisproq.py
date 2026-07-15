@@ -62,8 +62,14 @@ import keyboard                                       # noqa: E402
 # falls vorhanden, sonst das Template.
 _CFG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", HERE), "Whisproq")
 _CFG_PATH = os.path.join(_CFG_DIR, "config.json")
+# Whisper-Prompt = Erkennungs-Kontext: biast das Modell auf die gesprochenen
+# Satzzeichen-Woerter. Ohne ihn verhoert ein Fernfeld-Mikro "Fragezeichen"
+# gern als Fantasiewort ("Tragitza"). Leerer String = kein Prompt.
+_PROMPT_DEFAULT = ("Deutsches Diktat. Gesprochene Satzzeichen: Komma, Punkt, "
+                   "Fragezeichen, Ausrufezeichen, Doppelpunkt, Semikolon, "
+                   "neue Zeile, neuer Absatz.")
 _cfg = {"live_preview": False, "interval": 3.0, "hotkey": "f10",
-        "language": "de"}
+        "language": "de", "prompt": _PROMPT_DEFAULT}
 for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
     try:
         with open(_p, encoding="utf-8") as _f:
@@ -74,6 +80,7 @@ for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
                           or "f10")
         _cfg["language"] = (str(_raw.get("language", "de")).strip().lower()
                             or "de")
+        _cfg["prompt"] = str(_raw.get("prompt", _PROMPT_DEFAULT))
         break
     except (OSError, ValueError):
         continue
@@ -86,7 +93,8 @@ def _save_config():
             json.dump({"live_preview": _cfg["live_preview"],
                        "live_preview_interval_s": _cfg["interval"],
                        "hotkey": _cfg["hotkey"],
-                       "language": _cfg["language"]},
+                       "language": _cfg["language"],
+                       "prompt": _cfg["prompt"]},
                       f, indent=2)
         log.info("Konfig gespeichert (%s): %s", _CFG_PATH, _cfg)
     except OSError as e:
@@ -156,6 +164,8 @@ def _groq_transcribe(wav_bytes, key):
             + part("language", _cfg["language"])
             + part("temperature", "0")
             + part("response_format", "json")
+            # Vokabular-Vorspannung (s. _PROMPT_DEFAULT)
+            + (part("prompt", _cfg["prompt"]) if _cfg["prompt"] else b"")
             + b"--" + boundary.encode() + nl
             + b'Content-Disposition: form-data; name="file"; '
               b'filename="audio.wav"' + nl

@@ -92,9 +92,15 @@ is never written to:
   "live_preview": false,
   "live_preview_interval_s": 3.0,
   "hotkey": "f10",
-  "language": "de"
+  "language": "de",
+  "prompt": "Deutsches Diktat. Gesprochene Satzzeichen: Komma, Punkt, ..."
 }
 ```
+
+`prompt` is sent to Whisper as recognition context (vocabulary biasing):
+it makes the spoken punctuation words much more robust — without it, a
+far-field microphone easily mis-hears „Fragezeichen" as a fantasy word.
+Set it to `""` to disable, or adapt it to your own vocabulary.
 
 ### Other languages
 
@@ -141,6 +147,10 @@ generates the IExpress SED with absolute paths and produces
   blocks Python's default UA.)
 - **Text appears twice** → two variants running (EXE **and** venv)? The
   single-instance mutex only guards against double-starting the same one.
+- **Spoken punctuation words get garbled** („Fragezeichen" → fantasy word)
+  → that's microphone quality; the built-in `prompt` biasing helps a lot,
+  a close-talking microphone helps most. Split forms („Frage Zeichen")
+  are re-joined automatically.
 - **Uninstall** → Windows Settings → Apps → Whisproq (or run
   `uninstall.ps1`). Removes program, autostart and registry entries.
 - **Remove autostart only** → delete value `Whisproq` under

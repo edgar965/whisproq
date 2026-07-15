@@ -61,6 +61,14 @@ def convert(text):
     text = re.sub(r'\bneue[rs]?\s+(zeile|absatz|abschnitt)\b', '\n', text,
                   flags=re.IGNORECASE)
 
+    # Whisper reisst Satzzeichen-Woerter manchmal auseinander
+    # ("Frage Zeichen") -> vor der Tokenisierung wieder zusammenkleben.
+    text = re.sub(r'\b(frage|ausrufe|ruf)\s+zeichen\b',
+                  lambda m: m.group(1) + 'zeichen', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(doppel|strich)\s+punkt\b',
+                  lambda m: m.group(1) + 'punkt', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bsemi\s+kolon\b', 'semikolon', text, flags=re.IGNORECASE)
+
     out = []
     for tok in text.split(' '):
         core = tok.strip(_PUNCT_CHARS)
@@ -122,6 +130,11 @@ if __name__ == "__main__":
         ("erste Zeile neue Zeile zweite Zeile Punkt",
          "Erste Zeile\nZweite Zeile."),
         ("Wir kommen um 10.000 Uhr Punkt", "Wir kommen um 10.000 Uhr."),
+        # auseinandergerissene Satzzeichen-Woerter:
+        ("Kommst du morgen Frage Zeichen", "Kommst du morgen?"),
+        ("Achtung Ausrufe Zeichen", "Achtung!"),
+        ("Es gilt Doppel Punkt sofort anfangen Punkt",
+         "Es gilt: sofort anfangen."),
     ]
     ok = 0
     for inp, exp in tests:
