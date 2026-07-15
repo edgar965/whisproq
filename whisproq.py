@@ -45,6 +45,7 @@ else:
     HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import punctuation                                    # noqa: E402
+import guards                                         # noqa: E402
 
 import sounddevice as sd                              # noqa: E402
 import keyboard                                       # noqa: E402
@@ -187,26 +188,12 @@ def _groq_transcribe(wav_bytes, key):
         d = json.loads(r.read().decode("utf-8"))
     text = (d.get("text") or "").strip()
     segs = d.get("segments") or []
-    if text and segs:
-        worst = min(s.get("avg_logprob", 0.0) for s in segs)
-        if worst < -1.2:                  # Muell wie " Ewa, P" liegt bei -2.2
-            log.info("Verworfen (avg_logprob %.2f): %r", worst, text)
-            return ""
-    if text and _cfg["language"].startswith("de") and _foreign(text):
-        log.info("Verworfen (fremde Zeichen): %r", text)
+    worst = min((s.get("avg_logprob", 0.0) for s in segs), default=0.0)
+    ok, reason = guards.check(text, worst, _cfg["language"], _cfg["prompt"])
+    if not ok:
+        log.info("Verworfen (%s): %r", reason, text)
         return ""
     return text
-
-
-def _foreign(text):
-    """True bei >=2 verschiedenen Buchstaben ausserhalb des deutschen
-    Alphabets (+ gaengiger Lehnwort-Akzente) — Whisper halluziniert bei
-    unklarem Audio trotz language=de mitunter ganze Fremdsprachen-Saetze
-    ('Hún er aðeins í þessu')."""
-    allowed = set("abcdefghijklmnopqrstuvwxyzäöüß"
-                  "éèêàáç")
-    bad = {c for c in text.lower() if c.isalpha() and c not in allowed}
-    return len(bad) >= 2
 
 
 def _postprocess(text):
@@ -505,15 +492,17 @@ def _release(_e):
         return
     pcm = b"".join(frames)
     dur = len(pcm) / 2.0 / SR
-    log.info("PTT: %.2fs Audio", dur)
+    samples = array("h", pcm)
+    rms = (sum(x * x for x in samples) / len(samples)) ** 0.5
+    # RMS immer mitloggen: Datenbasis zum Nachjustieren des Gates
+    # (Messreihe: ab RMS < ~300 beginnt die Halluzinations-Zone)
+    log.info("PTT: %.2fs Audio (RMS %.0f)", dur, rms)
     if dur < 0.3:                                     # Fehlklick
         if OVERLAY is not None:
             OVERLAY.hide()
         return
     # Lautstaerke-Gate: (Fast-)Stille gar nicht erst senden — Whisper
     # halluziniert darauf ("Vielen Dank."), und es kostet Kontingent.
-    samples = array("h", pcm)
-    rms = (sum(x * x for x in samples) / len(samples)) ** 0.5
     if rms < 60:
         log.info("PTT: zu leise (RMS %.0f) - verworfen", rms)
         if OVERLAY is not None:

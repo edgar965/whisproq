@@ -11,3 +11,6 @@ __pycache__/
 *.log
 *.log.*
 .write_probe
+
+# generierte Test-Audios (make_audio.ps1)
+tests/*.wav
