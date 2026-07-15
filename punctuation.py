@@ -95,9 +95,13 @@ def convert(text):
             out.append(tok)                    # Whisper-Satzzeichen bleiben dran
 
     result = ' '.join(out)
-    result = re.sub(r'\s+([,.!?;:])', r'\1', result)
+    # nur Leerzeichen/Tabs vor Satzzeichen einziehen — \n nicht (sonst
+    # frisst "neuer Absatz." den Umbruch und es entsteht ",.")
+    result = re.sub(r'[ \t]+([,.!?;:])', r'\1', result)
     result = re.sub(r'[ \t]{2,}', ' ', result)
     result = re.sub(r'[ \t]*\n[ \t]*', '\n', result)
+    # Whisper-Satzpunkt direkt nach dem Umbruch ("... neuer Absatz.") faellt weg
+    result = re.sub(r'\n[.,;:!?]+', '\n', result)
     result = re.sub(r'([.!?]\s+|\n)([a-zäöüß])',
                     lambda m: m.group(1) + m.group(2).upper(), result)
     result = re.sub(r'^(\s*)([a-zäöüß])',
@@ -135,6 +139,8 @@ if __name__ == "__main__":
         ("Achtung Ausrufe Zeichen", "Achtung!"),
         ("Es gilt Doppel Punkt sofort anfangen Punkt",
          "Es gilt: sofort anfangen."),
+        # Whisper-Punkt nach "neuer Absatz" erzeugt kein ",." mehr:
+        ("Gjörg, neuer Absatz.", "Gjörg,\n"),
     ]
     ok = 0
     for inp, exp in tests:

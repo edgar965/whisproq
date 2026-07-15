@@ -11,6 +11,11 @@ Write-Host ""
 Write-Host "=== Whisproq $ver - Setup ===" -ForegroundColor Cyan
 Write-Host "Installiere nach: $dst"
 
+# Update-Erkennung: liegt schon eine Installation vor, werden Key- und
+# Autostart-Entscheidungen NICHT erneut abgefragt, sondern uebernommen.
+$update = Test-Path (Join-Path $dst "Whisproq.exe")
+if ($update) { Write-Host "Vorhandene Installation gefunden - fuehre Update durch." -ForegroundColor Yellow }
+
 # --- ALLE Diktat-Varianten beenden, damit nur EINE Installation bleibt ---
 # (EXE-Variante, venv-Variante, Vorgaenger "DiktatF10" - laufen sonst
 #  parallel und blockieren sich gegenseitig am Mikrofon/Mutex)
@@ -22,10 +27,17 @@ Get-CimInstance Win32_Process -Filter "Name like 'pythonw%'" -ErrorAction Silent
 Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "DiktatF10" -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 800
 
-# --- Programm entpacken ---
+# --- Programm entpacken (Update: User-Einstellungen bewahren) ---
+$cfgPath = Join-Path $dst "config.json"
+$cfgBak = if ($update -and (Test-Path $cfgPath)) { Get-Content $cfgPath -Raw } else { $null }
 New-Item -ItemType Directory -Force -Path $dst | Out-Null
 Expand-Archive -Path (Join-Path $PSScriptRoot "Whisproq.zip") -DestinationPath $dst -Force
-Write-Host "Programm entpackt." -ForegroundColor Green
+if ($cfgBak) {
+    Set-Content -Path $cfgPath -Value $cfgBak -Encoding UTF8
+    Write-Host "Programm aktualisiert (Einstellungen uebernommen)." -ForegroundColor Green
+} else {
+    Write-Host "Programm entpackt." -ForegroundColor Green
+}
 
 # --- GROQ_API_KEY (kostenlos) ---
 $key = [Environment]::GetEnvironmentVariable("GROQ_API_KEY", "User")
@@ -74,15 +86,28 @@ $sizeKB = [int]((Get-ChildItem $dst -Recurse | Measure-Object Length -Sum).Sum /
 Set-ItemProperty -Path $un -Name "EstimatedSize" -Value $sizeKB -Type DWord
 Write-Host "In 'Installierte Apps' registriert (deinstallierbar)." -ForegroundColor Green
 
-# --- Autostart (auf Wunsch) + sofort starten ---
-Write-Host ""
-$auto = Read-Host "Whisproq beim Windows-Start automatisch starten? (j/n)"
-if ($auto -match "^[jJyY]") {
-    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -Value ('"' + $exe + '"')
-    Write-Host "Autostart eingetragen." -ForegroundColor Green
+# --- Autostart + sofort starten ---
+# Update: bestehende Autostart-Entscheidung uebernehmen (Eintrag vorhanden ->
+# bleibt, zeigt auf die neue EXE; nicht vorhanden -> bleibt weg, keine Frage).
+$runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$hadAuto = $null -ne (Get-ItemProperty -Path $runKey -Name "Whisproq" -ErrorAction SilentlyContinue)
+if ($update) {
+    if ($hadAuto) {
+        Set-ItemProperty -Path $runKey -Name "Whisproq" -Value ('"' + $exe + '"')
+        Write-Host "Update: Autostart beibehalten." -ForegroundColor Green
+    } else {
+        Write-Host "Update: kein Autostart (wie bisher)."
+    }
 } else {
-    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -ErrorAction SilentlyContinue
-    Write-Host "Kein Autostart - manuell starten: $exe"
+    Write-Host ""
+    $auto = Read-Host "Whisproq beim Windows-Start automatisch starten? (j/n)"
+    if ($auto -match "^[jJyY]") {
+        Set-ItemProperty -Path $runKey -Name "Whisproq" -Value ('"' + $exe + '"')
+        Write-Host "Autostart eingetragen." -ForegroundColor Green
+    } else {
+        Remove-ItemProperty -Path $runKey -Name "Whisproq" -ErrorAction SilentlyContinue
+        Write-Host "Kein Autostart - manuell starten: $exe"
+    }
 }
 Start-Process -FilePath $exe
 Write-Host ""

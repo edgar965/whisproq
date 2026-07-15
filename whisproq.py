@@ -33,6 +33,7 @@ import time
 import urllib.request
 import uuid
 import wave
+from array import array
 from logging.handlers import RotatingFileHandler
 
 __version__ = "0.1"
@@ -72,7 +73,8 @@ _cfg = {"live_preview": False, "interval": 3.0, "hotkey": "f10",
         "language": "de", "prompt": _PROMPT_DEFAULT}
 for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
     try:
-        with open(_p, encoding="utf-8") as _f:
+        # utf-8-sig: PowerShell (Setup-Update) schreibt UTF-8 MIT BOM
+        with open(_p, encoding="utf-8-sig") as _f:
             _raw = json.load(_f)
         _cfg["live_preview"] = bool(_raw.get("live_preview", False))
         _cfg["interval"] = float(_raw.get("live_preview_interval_s", 3.0))
@@ -163,7 +165,10 @@ def _groq_transcribe(wav_bytes, key):
     body = (part("model", "whisper-large-v3-turbo")
             + part("language", _cfg["language"])
             + part("temperature", "0")
-            + part("response_format", "json")
+            # verbose_json liefert avg_logprob je Segment (Halluzinations-
+            # Filter). no_speech_prob ist bei Groq-turbo nutzlos: gemessen
+            # 0.0 sogar bei purer Stille.
+            + part("response_format", "verbose_json")
             # Vokabular-Vorspannung (s. _PROMPT_DEFAULT)
             + (part("prompt", _cfg["prompt"]) if _cfg["prompt"] else b"")
             + b"--" + boundary.encode() + nl
@@ -179,7 +184,29 @@ def _groq_transcribe(wav_bytes, key):
                  # Cloudflare blockt den Default-UA "Python-urllib" mit 403
                  "User-Agent": "whisproq/" + __version__})
     with urllib.request.urlopen(req, timeout=30) as r:
-        return (json.loads(r.read().decode("utf-8")).get("text") or "").strip()
+        d = json.loads(r.read().decode("utf-8"))
+    text = (d.get("text") or "").strip()
+    segs = d.get("segments") or []
+    if text and segs:
+        worst = min(s.get("avg_logprob", 0.0) for s in segs)
+        if worst < -1.2:                  # Muell wie " Ewa, P" liegt bei -2.2
+            log.info("Verworfen (avg_logprob %.2f): %r", worst, text)
+            return ""
+    if text and _cfg["language"].startswith("de") and _foreign(text):
+        log.info("Verworfen (fremde Zeichen): %r", text)
+        return ""
+    return text
+
+
+def _foreign(text):
+    """True bei >=2 verschiedenen Buchstaben ausserhalb des deutschen
+    Alphabets (+ gaengiger Lehnwort-Akzente) — Whisper halluziniert bei
+    unklarem Audio trotz language=de mitunter ganze Fremdsprachen-Saetze
+    ('Hún er aðeins í þessu')."""
+    allowed = set("abcdefghijklmnopqrstuvwxyzäöüß"
+                  "éèêàáç")
+    bad = {c for c in text.lower() if c.isalpha() and c not in allowed}
+    return len(bad) >= 2
 
 
 def _postprocess(text):
@@ -483,6 +510,15 @@ def _release(_e):
         if OVERLAY is not None:
             OVERLAY.hide()
         return
+    # Lautstaerke-Gate: (Fast-)Stille gar nicht erst senden — Whisper
+    # halluziniert darauf ("Vielen Dank."), und es kostet Kontingent.
+    samples = array("h", pcm)
+    rms = (sum(x * x for x in samples) / len(samples)) ** 0.5
+    if rms < 60:
+        log.info("PTT: zu leise (RMS %.0f) - verworfen", rms)
+        if OVERLAY is not None:
+            OVERLAY.flash("Zu leise — bitte lauter/näher sprechen")
+        return
     if OVERLAY is not None:
         OVERLAY.set_text("… transkribiere")
 
@@ -496,8 +532,8 @@ def _release(_e):
                 _type_into_active_field(text + " ")
                 if OVERLAY is not None:               # final kurz zeigen
                     OVERLAY.flash(_postprocess(text))
-            elif OVERLAY is not None:
-                OVERLAY.hide()
+            elif OVERLAY is not None:                 # leer/als Muell verworfen
+                OVERLAY.flash("Nicht verstanden — bitte erneut sprechen")
         except Exception as e:
             log.warning("Groq-Aufruf fehlgeschlagen: %s", e)
             if OVERLAY is not None:

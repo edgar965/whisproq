@@ -38,6 +38,8 @@ Double-click **`Install/Whisproq_Setup.exe`** — it ships right in the repo
 - asks for your `GROQ_API_KEY` (with step-by-step instructions, and offers
   to open the key page in your browser)
 - asks whether Whisproq should start with Windows, then launches it
+- **updates**: run the same EXE again — an existing installation is
+  detected, nothing is asked, key and autostart choice are kept
 
 **Option B — from source (Python 3.9+):**
 Clone/copy this repo and double-click `install.bat`. It creates a venv,
@@ -170,7 +172,9 @@ im Repo, kein Python nötig) — das Setup fragt den Groq-Key ab (Anleitung
 inklusive, Key gibt es kostenlos auf <https://console.groq.com/keys>),
 fragt, ob Whisproq in den Autostart soll, und startet sofort. Whisproq
 erscheint unter Windows-Einstellungen → Apps und ist dort deinstallierbar.
-Alternativ aus dem Quellcode: `install.bat`.
+**Update:** dieselbe EXE einfach erneut ausführen — bestehende Installation
+wird erkannt, es wird nichts erneut gefragt. Alternativ aus dem Quellcode:
+`install.bat`.
 
 **Satzzeichen mitdiktieren:** „Komma", „Punkt", „Fragezeichen",
 „Ausrufezeichen", „Doppelpunkt", „neue Zeile" — wird nie verdoppelt,
