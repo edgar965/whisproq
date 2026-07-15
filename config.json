@@ -1,5 +1,5 @@
 {
-  "live_preview": true,
+  "live_preview": false,
   "live_preview_interval_s": 3.0,
   "hotkey": "f10",
   "language": "de"

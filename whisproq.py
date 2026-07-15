@@ -48,46 +48,51 @@ import punctuation                                    # noqa: E402
 import sounddevice as sd                              # noqa: E402
 import keyboard                                       # noqa: E402
 
-# --- Konfiguration (config.json neben dem Programm) ---
+# --- Konfiguration ---
 # live_preview: true  -> waehrend der Hotkey gehalten wird, zeigt das Overlay
 #                        den Zwischenstand (alle `interval` s via Groq).
 #                        Kostet ~3x Kontingent (Puffer wird mehrfach gesendet).
 # live_preview: false -> schlank, Text erst beim Loslassen (nur 1 Request).
 # language:            Whisper-Sprachcode ("de", "en", ...). Die
 #                      Satzzeichen-Wort-Umwandlung laeuft nur bei "de".
-# Umschaltbar zur Laufzeit ueber das Zahnrad im Overlay (speichert hierher).
-_CFG_PATH = os.path.join(HERE, "config.json")
+# Gespeichert wird IMMER in die User-Config %LOCALAPPDATA%\Whisproq\
+# config.json — nie in die config.json neben dem Programm: die ist nur das
+# Default-Template und liegt bei der venv-Variante im git-Repo (Zahnrad-
+# Speichern soll das Repo nicht dirty machen). Gelesen wird die User-Config,
+# falls vorhanden, sonst das Template.
+_CFG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", HERE), "Whisproq")
+_CFG_PATH = os.path.join(_CFG_DIR, "config.json")
 _cfg = {"live_preview": False, "interval": 3.0, "hotkey": "f10",
         "language": "de"}
-try:
-    with open(_CFG_PATH, encoding="utf-8") as _f:
-        _raw = json.load(_f)
-    _cfg["live_preview"] = bool(_raw.get("live_preview", False))
-    _cfg["interval"] = float(_raw.get("live_preview_interval_s", 3.0))
-    _cfg["hotkey"] = str(_raw.get("hotkey", "f10")).strip().lower() or "f10"
-    _cfg["language"] = (str(_raw.get("language", "de")).strip().lower()
-                        or "de")
-except (OSError, ValueError):
-    pass
+for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
+    try:
+        with open(_p, encoding="utf-8") as _f:
+            _raw = json.load(_f)
+        _cfg["live_preview"] = bool(_raw.get("live_preview", False))
+        _cfg["interval"] = float(_raw.get("live_preview_interval_s", 3.0))
+        _cfg["hotkey"] = (str(_raw.get("hotkey", "f10")).strip().lower()
+                          or "f10")
+        _cfg["language"] = (str(_raw.get("language", "de")).strip().lower()
+                            or "de")
+        break
+    except (OSError, ValueError):
+        continue
 
 
 def _save_config():
     try:
+        os.makedirs(_CFG_DIR, exist_ok=True)
         with open(_CFG_PATH, "w", encoding="utf-8") as f:
             json.dump({"live_preview": _cfg["live_preview"],
                        "live_preview_interval_s": _cfg["interval"],
                        "hotkey": _cfg["hotkey"],
                        "language": _cfg["language"]},
                       f, indent=2)
-        log.info("Konfig gespeichert: %s", _cfg)
+        log.info("Konfig gespeichert (%s): %s", _CFG_PATH, _cfg)
     except OSError as e:
         log.warning("Konfig nicht speicherbar: %s", e)
 
-# --- Einzelinstanz (zwei Instanzen wuerden doppelt tippen) ---
 _k32 = ctypes.windll.kernel32
-_k32.CreateMutexW(None, False, "Whisproq_SingleInstance")
-if _k32.GetLastError() == 183:                        # ERROR_ALREADY_EXISTS
-    sys.exit(0)
 
 
 def _log_dir():
@@ -111,6 +116,15 @@ _handler = RotatingFileHandler(os.path.join(_log_dir(), "whisproq.log"),
 logging.basicConfig(level=logging.INFO, handlers=[_handler],
                     format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger("whisproq")
+
+# --- Einzelinstanz (zwei Instanzen wuerden doppelt tippen) ---
+# Nach der Log-Initialisierung, damit die zweite Instanz NICHT stumm stirbt,
+# sondern nachvollziehbar ins Log schreibt, warum sie sich beendet.
+_k32.CreateMutexW(None, False, "Whisproq_SingleInstance")
+if _k32.GetLastError() == 183:                        # ERROR_ALREADY_EXISTS
+    log.warning("Whisproq laeuft bereits (Mutex belegt) - "
+                "diese zweite Instanz beendet sich.")
+    sys.exit(0)
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 SR = 16000

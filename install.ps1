@@ -12,6 +12,20 @@ Write-Host "=== Whisproq - Installation ===" -ForegroundColor Cyan
 Write-Host "Ordner: $HERE"
 Write-Host ""
 
+# --- 0) Alt-/Parallel-Varianten aufraeumen (nur EINE Installation darf
+#         leben - sonst blockieren sich die Instanzen an Mutex/Mikrofon) ---
+Get-Process -Name Whisproq, DiktatF10 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name like 'pythonw%'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*whisproq*" -or $_.CommandLine -like "*diktat_f10*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "DiktatF10" -ErrorAction SilentlyContinue
+$exeDir = Join-Path $env:LOCALAPPDATA "Whisproq"
+if (Test-Path (Join-Path $exeDir "Whisproq.exe")) {
+    Write-Host "Vorhandene EXE-Installation wird entfernt (Einstellungen bleiben) ..." -ForegroundColor Yellow
+    Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Whisproq" -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem $exeDir -Exclude config.json | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- 1) Python 3 finden (py-Launcher oder python), sonst via winget holen ---
 function Find-Python {
     foreach ($cand in @(@("py", "-3"), @("python"))) {
@@ -75,12 +89,18 @@ if (-not $key) {
     Write-Host "GROQ_API_KEY bereits gesetzt." -ForegroundColor Green
 }
 
-# --- 4) Autostart + sofort starten ---
+# --- 4) Autostart (auf Wunsch) + sofort starten ---
 $pyw = Join-Path $HERE "venv\Scripts\pythonw.exe"
 $app = Join-Path $HERE "whisproq.py"
 $cmd = '"' + $pyw + '" "' + $app + '"'
-Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -Value $cmd
-Write-Host "Autostart eingetragen (HKCU\...\Run\Whisproq)." -ForegroundColor Green
+$auto = Read-Host "Whisproq beim Windows-Start automatisch starten? (j/n)"
+if ($auto -match "^[jJyY]") {
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -Value $cmd
+    Write-Host "Autostart eingetragen (HKCU\...\Run\Whisproq)." -ForegroundColor Green
+} else {
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -ErrorAction SilentlyContinue
+    Write-Host "Kein Autostart - manuell starten: install-Ordner\venv\Scripts\pythonw.exe whisproq.py"
+}
 
 # evtl. laufende Instanz beenden, dann frisch starten
 Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" -ErrorAction SilentlyContinue |

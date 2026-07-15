@@ -1,24 +1,29 @@
 # Whisproq - Setup (laeuft aus der Setup-EXE heraus)
 $ErrorActionPreference = "Stop"
 $dst = Join-Path $env:LOCALAPPDATA "Whisproq"
+$ver = "0.1"   # muss zu __version__ in whisproq.py passen
 
 Write-Host ""
-Write-Host "=== Whisproq - Setup ===" -ForegroundColor Cyan
+Write-Host "=== Whisproq $ver - Setup ===" -ForegroundColor Cyan
 Write-Host "Installiere nach: $dst"
 
-# evtl. laufende Instanzen beenden (EXE- und Python-Variante)
-Get-Process -Name Whisproq -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*whisproq*" } |
+# --- ALLE Diktat-Varianten beenden, damit nur EINE Installation bleibt ---
+# (EXE-Variante, venv-Variante, Vorgaenger "DiktatF10" - laufen sonst
+#  parallel und blockieren sich gegenseitig am Mikrofon/Mutex)
+Get-Process -Name Whisproq, DiktatF10 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name like 'pythonw%'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*whisproq*" -or $_.CommandLine -like "*diktat_f10*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+# Alt-Autostarts entfernen (der neue Eintrag "Whisproq" wird unten gesetzt)
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "DiktatF10" -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 800
 
-# Programm entpacken
+# --- Programm entpacken ---
 New-Item -ItemType Directory -Force -Path $dst | Out-Null
 Expand-Archive -Path (Join-Path $PSScriptRoot "Whisproq.zip") -DestinationPath $dst -Force
 Write-Host "Programm entpackt." -ForegroundColor Green
 
-# GROQ_API_KEY (kostenlos)
+# --- GROQ_API_KEY (kostenlos) ---
 $key = [Environment]::GetEnvironmentVariable("GROQ_API_KEY", "User")
 if (-not $key) {
     Write-Host ""
@@ -48,13 +53,38 @@ if (-not $key) {
     Write-Host "GROQ_API_KEY bereits gesetzt." -ForegroundColor Green
 }
 
-# Autostart + sofort starten
+# --- Eintrag in "Installierte Apps" (deinstallierbar ueber Windows) ---
 $exe = Join-Path $dst "Whisproq.exe"
-Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -Value ('"' + $exe + '"')
+$un = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Whisproq"
+New-Item -Path $un -Force | Out-Null
+Set-ItemProperty -Path $un -Name "DisplayName" -Value "Whisproq"
+Set-ItemProperty -Path $un -Name "DisplayVersion" -Value $ver
+Set-ItemProperty -Path $un -Name "Publisher" -Value "edgar965"
+Set-ItemProperty -Path $un -Name "InstallLocation" -Value $dst
+Set-ItemProperty -Path $un -Name "DisplayIcon" -Value $exe
+Set-ItemProperty -Path $un -Name "UninstallString" -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dst "uninstall.ps1") + '"')
+Set-ItemProperty -Path $un -Name "QuietUninstallString" -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dst "uninstall.ps1") + '" -Quiet')
+Set-ItemProperty -Path $un -Name "NoModify" -Value 1 -Type DWord
+Set-ItemProperty -Path $un -Name "NoRepair" -Value 1 -Type DWord
+$sizeKB = [int]((Get-ChildItem $dst -Recurse | Measure-Object Length -Sum).Sum / 1KB)
+Set-ItemProperty -Path $un -Name "EstimatedSize" -Value $sizeKB -Type DWord
+Write-Host "In 'Installierte Apps' registriert (deinstallierbar)." -ForegroundColor Green
+
+# --- Autostart (auf Wunsch) + sofort starten ---
+Write-Host ""
+$auto = Read-Host "Whisproq beim Windows-Start automatisch starten? (j/n)"
+if ($auto -match "^[jJyY]") {
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -Value ('"' + $exe + '"')
+    Write-Host "Autostart eingetragen." -ForegroundColor Green
+} else {
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -ErrorAction SilentlyContinue
+    Write-Host "Kein Autostart - manuell starten: $exe"
+}
 Start-Process -FilePath $exe
 Write-Host ""
 Write-Host "=== Fertig! ===" -ForegroundColor Cyan
 Write-Host "F10 HALTEN -> sprechen -> loslassen. Satzzeichen mitdiktieren:"
 Write-Host "  'Komma' , 'Punkt' . 'Fragezeichen' ? 'Ausrufezeichen' ! 'neue Zeile'"
+Write-Host "Deinstallieren: Windows-Einstellungen -> Apps -> Whisproq"
 Write-Host "Log: $dst\whisproq.log"
 Start-Sleep -Seconds 6

@@ -18,6 +18,7 @@ Write-Host "1/4 PyInstaller (onedir, noconsole) ..." -ForegroundColor Cyan
     (Join-Path $HERE "whisproq.py")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller fehlgeschlagen (Exit $LASTEXITCODE)" }
 Copy-Item (Join-Path $HERE "config.json") (Join-Path $HERE "dist\Whisproq\") -Force
+Copy-Item (Join-Path $HERE "uninstall.ps1") (Join-Path $HERE "dist\Whisproq\") -Force
 
 Write-Host "2/4 Payload-Zip (Python-zipfile) ..." -ForegroundColor Cyan
 & $py (Join-Path $HERE "build\make_zip.py")
@@ -52,7 +53,7 @@ SourceFiles=SourceFiles
 InstallPrompt=
 DisplayLicense=
 FinishMessage=
-TargetName=$HERE\Whisproq_Setup.exe
+TargetName=$HERE\Install\Whisproq_Setup.exe
 FriendlyName=Whisproq Setup
 AppLaunched=powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1
 PostInstallCmd=<None>
@@ -70,10 +71,11 @@ $sedPath = Join-Path $HERE "build\Whisproq_Setup.sed"
 Set-Content -Path $sedPath -Value $sed -Encoding Ascii
 
 Write-Host "4/4 IExpress ..." -ForegroundColor Cyan
+New-Item -ItemType Directory -Force -Path (Join-Path $HERE "Install") | Out-Null
 # IExpress bricht mit Exit 1 ab, wenn die Ziel-EXE schon existiert -> loeschen.
-Remove-Item (Join-Path $HERE "Whisproq_Setup.exe") -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $HERE "Install\Whisproq_Setup.exe") -Force -ErrorAction SilentlyContinue
 Start-Process -FilePath "iexpress.exe" -ArgumentList "/N", "/Q", $sedPath -Wait -NoNewWindow
-$exe = Join-Path $HERE "Whisproq_Setup.exe"
+$exe = Join-Path $HERE "Install\Whisproq_Setup.exe"
 if (-not (Test-Path $exe)) { throw "IExpress hat keine EXE erzeugt - SED pruefen: $sedPath" }
 $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
 Write-Host "OK: Whisproq_Setup.exe gebaut ($mb MB)." -ForegroundColor Green

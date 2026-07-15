@@ -30,13 +30,14 @@ no GPU, no build step, no word quota.
 ## Install
 
 **Option A — Setup EXE (recommended, no Python needed):**
-Download `Whisproq_Setup.exe` from the
-[Releases](../../releases) page and double-click it. The setup
+Double-click **`Install/Whisproq_Setup.exe`** — it ships right in the repo
+(also attached to the [Releases](../../releases)). The setup
 
-- installs to `%LOCALAPPDATA%\Whisproq`
+- installs to `%LOCALAPPDATA%\Whisproq` and registers Whisproq in
+  Windows' installed apps (uninstall via Settings → Apps)
 - asks for your `GROQ_API_KEY` (with step-by-step instructions, and offers
   to open the key page in your browser)
-- registers autostart and launches Whisproq immediately
+- asks whether Whisproq should start with Windows, then launches it
 
 **Option B — from source (Python 3.9+):**
 Clone/copy this repo and double-click `install.bat`. It creates a venv,
@@ -78,15 +79,17 @@ Hold the hotkey → the overlay appears top-right → click **⚙**:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Live preview | on | show interim transcript while speaking (costs ~3× quota) |
+| Live preview | off | show interim transcript while speaking (costs ~3× quota) |
 | Interval (s) | 3 | refresh rate of the preview |
 | Hotkey | `f10` | single key or combo: `f4`, `ctrl+space`, `alt+d` … |
 
-Stored in `config.json` next to the program:
+Your settings are stored in `%LOCALAPPDATA%\Whisproq\config.json` — the
+`config.json` in the program folder / repo only provides the defaults and
+is never written to:
 
 ```json
 {
-  "live_preview": true,
+  "live_preview": false,
   "live_preview_interval_s": 3.0,
   "hotkey": "f10",
   "language": "de"
@@ -102,7 +105,7 @@ rules for more languages are welcome — see `punctuation.py`.
 
 ## Building the Setup EXE
 
-Only needed on a dev machine (the EXE in Releases is prebuilt):
+Only needed on a dev machine (`Install/Whisproq_Setup.exe` is prebuilt):
 
 ```
 install.bat                              # creates venv
@@ -113,16 +116,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
 `build.ps1` runs PyInstaller (onedir), zips the result with Python's
 `zipfile` (PowerShell's `Compress-Archive` chokes on tk's tzdata files),
 generates the IExpress SED with absolute paths and produces
-`Whisproq_Setup.exe` (~25 MB).
+`Install/Whisproq_Setup.exe` (~13 MB).
 
 ## Files
 
 | File | Purpose |
 |---|---|
+| `Install/Whisproq_Setup.exe` | **the distributable setup** (one file, no Python needed) |
 | `whisproq.py` | the tool (hotkey, recording, Groq upload, overlay, paste) |
 | `punctuation.py` | German punctuation converter + tests |
-| `config.json` | settings (also editable via the ⚙ dialog) |
+| `config.json` | default settings (your own live in `%LOCALAPPDATA%\Whisproq`) |
 | `install.bat` / `install.ps1` | source install (venv, key, autostart) |
+| `uninstall.ps1` | uninstaller (also reachable via Windows Settings → Apps) |
 | `build.ps1` + `build/` | Setup-EXE build (PyInstaller → zip → IExpress) |
 | `whisproq.log` | rotating log next to the program |
 
@@ -136,7 +141,9 @@ generates the IExpress SED with absolute paths and produces
   blocks Python's default UA.)
 - **Text appears twice** → two variants running (EXE **and** venv)? The
   single-instance mutex only guards against double-starting the same one.
-- **Remove autostart** → delete value `Whisproq` under
+- **Uninstall** → Windows Settings → Apps → Whisproq (or run
+  `uninstall.ps1`). Removes program, autostart and registry entries.
+- **Remove autostart only** → delete value `Whisproq` under
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 ---
@@ -148,11 +155,12 @@ sprechen, **loslassen** → der Text erscheint nach ~0,5 s im aktiven Feld —
 auch in Terminals. Erkennung über Groqs kostenlose Cloud (Whisper
 large-v3-turbo, ~2 h Audio/Tag frei), Deutsch voreingestellt.
 
-**Installation:** `Whisproq_Setup.exe` aus den
-[Releases](../../releases) doppelklicken (kein Python nötig) — das Setup
-fragt den Groq-Key ab (Anleitung inklusive, Key gibt es kostenlos auf
-<https://console.groq.com/keys>), trägt den Autostart ein und startet
-sofort. Alternativ aus dem Quellcode: `install.bat`.
+**Installation:** `Install\Whisproq_Setup.exe` doppelklicken (liegt direkt
+im Repo, kein Python nötig) — das Setup fragt den Groq-Key ab (Anleitung
+inklusive, Key gibt es kostenlos auf <https://console.groq.com/keys>),
+fragt, ob Whisproq in den Autostart soll, und startet sofort. Whisproq
+erscheint unter Windows-Einstellungen → Apps und ist dort deinstallierbar.
+Alternativ aus dem Quellcode: `install.bat`.
 
 **Satzzeichen mitdiktieren:** „Komma", „Punkt", „Fragezeichen",
 „Ausrufezeichen", „Doppelpunkt", „neue Zeile" — wird nie verdoppelt,
@@ -160,7 +168,8 @@ Wörter wie „Treffpunkt" bleiben heil.
 
 **Einstellungen:** Hotkey halten → Overlay oben rechts → **⚙**:
 Live-Vorschau an/aus, Intervall (Default 3 s), Hotkey frei wählbar
-(auch Kombis wie `ctrl+space`). Gespeichert in `config.json`.
+(auch Kombis wie `ctrl+space`). Gespeichert in
+`%LOCALAPPDATA%\Whisproq\config.json`.
 
 **Bei Problemen:** `whisproq.log` neben dem Programm ansehen — häufigste
 Ursache ist ein fehlender Key (`setx GROQ_API_KEY <key>`).

@@ -7,9 +7,6 @@ build/Whisproq.spec
 build/Whisproq_Setup.sed
 __pycache__/
 
-# Die fertige Setup-EXE gehoert in die GitHub Releases, nicht ins Repo
-Whisproq_Setup.exe
-
 # Laufzeit
 *.log
 *.log.*
