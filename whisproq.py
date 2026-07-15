@@ -36,7 +36,7 @@ import wave
 from array import array
 from logging.handlers import RotatingFileHandler
 
-__version__ = "0.22"
+__version__ = "0.23"
 
 # Gefroren (PyInstaller-EXE) oder als Skript? Bestimmt Basisverzeichnis.
 if getattr(sys, "frozen", False):
@@ -662,24 +662,49 @@ def _remove_hotkeys():
     _hk_handles = []
 
 
+def _combo_handler(parts, is_pressed=None):
+    """Callback fuer keyboard.hook: startet die Aufnahme, sobald ALLE
+    Tasten der Kombi gedrueckt sind, und stoppt, sobald eine losgelassen
+    wird. Noetig weil keyboard.add_hotkey bei reinen Modifier-Kombis
+    (z.B. 'ctrl+windows' — beide sind Modifier, keine Trigger-Taste) NICHT
+    feuert.
+
+    Prueft ueber keyboard.is_pressed (loest die Taste ueber Scancodes auf,
+    unabhaengig vom Event-Namen — 'windows' ist links wie rechts korrekt).
+    is_pressed ist injizierbar, damit die Logik ohne echte
+    Tastendruck-Simulation testbar bleibt."""
+    check = is_pressed or keyboard.is_pressed
+
+    def on_evt(e):
+        try:
+            allp = all(check(p) for p in parts)
+        except Exception:
+            return
+        if allp and e.event_type == "down":          # letzte Taste kam runter
+            _press(None)
+        elif not allp and _st["on"]:                 # eine ging hoch
+            _release(None)
+
+    return on_evt
+
+
 def _apply_hotkey(hk):
     """Registriert Push-to-talk auf `hk`; entfernt vorherige Registrierung.
 
     Einzeltaste ("f10"): Press/Release-Hooks direkt.
-    Kombi ("ctrl+windows"): add_hotkey fuer den Druck, Release-Hook auf der
-    letzten (Nicht-Modifier-)Taste. Wirft ValueError bei unbekannter Taste.
+    Kombi ("ctrl+windows"): eigener Zustandstracker ueber keyboard.hook
+    (siehe _combo_handler). Wirft ValueError bei unbekannter Taste.
     """
     global _hk_handles
     keyboard.parse_hotkey(hk)                         # validieren (ValueError)
     _remove_hotkeys()
     parts = [p.strip() for p in hk.split("+") if p.strip()]
-    main_key = parts[-1]
     if len(parts) == 1:
+        main_key = parts[-1]
         _hk_handles.append(("hook", keyboard.on_press_key(main_key, _press)))
         _hk_handles.append(("hook", keyboard.on_release_key(main_key, _release)))
     else:
-        _hk_handles.append(("combo", keyboard.add_hotkey(hk, lambda: _press(None))))
-        _hk_handles.append(("hook", keyboard.on_release_key(main_key, _release)))
+        _hk_handles.append(("hook", keyboard.hook(_combo_handler(parts))))
     log.info("Hotkey aktiv: %s", hk)
 
 
