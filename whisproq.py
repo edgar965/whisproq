@@ -298,7 +298,7 @@ class _Overlay:
                  font=("Segoe UI", 9)).grid(row=3, column=0, columnspan=2,
                                             sticky="w", pady=(2, 4))
         tk.Label(win, text="Hinweis: Vorschau kostet ca. 3× Kontingent\n"
-                           "(kostenlos sind ~2 h Audio pro Tag).",
+                           "(frei: 2 h Audio je Stunde, 8 h am Tag).",
                  justify="left", bg="#0d2137", fg="#8fa8c8",
                  font=("Segoe UI", 9)).grid(row=4, column=0, columnspan=2,
                                             sticky="w", pady=(4, 10))
