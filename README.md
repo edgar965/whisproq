@@ -24,10 +24,10 @@ no GPU, no build step. The free quota is measured in audio time
   no interpreter, no local models, no GPU, no build step, ~50 MB RAM
 - **Free tier that fits dictation**: Groq's free quota for
   `whisper-large-v3-turbo` is a **time** quota, not a word limit —
-  7,200 audio-seconds/hour and 28,800/day (= up to 2 h per hour, 8 h
-  per day; 20 requests/min, 2,000/day — see [Groq's rate-limit
-  docs](https://console.groq.com/docs/rate-limits)); no credit card
-  required
+  28,800 audio-seconds/day (≈ up to **8 h of audio daily**; further
+  limits: 7,200 audio-seconds/hour, 20 requests/min, 2,000/day — see
+  [Groq's rate-limit docs](https://console.groq.com/docs/rate-limits));
+  no credit card required
 - **Fast**: the text lands ~0.5 s after releasing the key
   (whisper-large-v3-turbo on Groq's cloud)
 - **Spoken punctuation (German)**: „Komma", „Punkt", „Fragezeichen",
@@ -195,8 +195,7 @@ auch Kombis, ohne Neustart) · geführtes Setzen des Groq-Keys im Setup,
 **änderbar jederzeit im Zahnrad-Dialog ⚙** · Autostart
 eingebaut · **keine Python-Umgebung nötig** (Setup-EXE ist eigenständig,
 keine lokalen Modelle, keine GPU) · kostenlos mit großzügigem
-Zeit-Kontingent (bis zu 8 h Audio/Tag, max. 2 h je Stunde — kein
-Wort-Limit) ·
+Zeit-Kontingent (bis zu 8 h Audio/Tag, kein Wort-Limit) ·
 diktierte deutsche Satzzeichen · Halluzinations-Wächter statt
 Kauderwelsch im Text · erscheint unter „Installierte Apps" und ist
 sauber deinstallierbar · Updates fragen nichts und erhalten die

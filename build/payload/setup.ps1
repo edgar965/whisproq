@@ -53,7 +53,7 @@ if (-not $key) {
     Write-Host "     ACHTUNG: er wird nur EINMAL angezeigt!"
     Write-Host "  5. Hier unten einfuegen (Rechtsklick ins Fenster = Einfuegen)"
     Write-Host ""
-    Write-Host "  Kostenlos-Kontingent: bis zu 8 Stunden Audio pro Tag (max. 2 h je Stunde)."
+    Write-Host "  Kostenlos-Kontingent: bis zu 8 Stunden Diktat-Audio pro Tag."
     Write-Host ""
     $open = Read-Host "Soll ich https://console.groq.com/keys jetzt im Browser oeffnen? (j/n)"
     if ($open -match "^[jJyY]") { Start-Process "https://console.groq.com/keys" }
