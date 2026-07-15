@@ -69,7 +69,7 @@ _CFG_PATH = os.path.join(_CFG_DIR, "config.json")
 # ~RMS 400 KONSISTENT Islaendisch provozierte ("Ég testi það..." fuer
 # "Ich teste das..."); ohne Prompt gab es nie Fremdsprachen. Wer
 # experimentieren will, setzt "prompt" in config.json.
-_cfg = {"live_preview": False, "interval": 3.0, "hotkey": "f10",
+_cfg = {"live_preview": False, "interval": 3.0, "hotkey": "ctrl+windows",
         "language": "de", "prompt": ""}
 for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
     try:
@@ -78,8 +78,8 @@ for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
             _raw = json.load(_f)
         _cfg["live_preview"] = bool(_raw.get("live_preview", False))
         _cfg["interval"] = float(_raw.get("live_preview_interval_s", 3.0))
-        _cfg["hotkey"] = (str(_raw.get("hotkey", "f10")).strip().lower()
-                          or "f10")
+        _cfg["hotkey"] = (str(_raw.get("hotkey", "ctrl+windows")).strip().lower()
+                          or "ctrl+windows")
         _cfg["language"] = (str(_raw.get("language", "de")).strip().lower()
                             or "de")
         _cfg["prompt"] = str(_raw.get("prompt", ""))
@@ -288,15 +288,66 @@ class _Overlay:
         var_hk = tk.StringVar(value=_cfg["hotkey"])
         tk.Label(win, text="Hotkey (halten = Diktat):",
                  **style).grid(row=2, column=0, sticky="w", pady=(8, 0))
-        tk.Entry(win, textvariable=var_hk, width=14,
-                 bg="#16375c", fg="#e0e8f0", insertbackground="#e0e8f0",
-                 font=("Segoe UI", 10)).grid(row=2, column=1, sticky="w",
-                                             padx=(8, 0), pady=(8, 0))
-        tk.Label(win, text="z.B. f10, f4 oder Kombis wie ctrl+space\n"
-                           "(engl. Namen: ctrl, alt, shift, space)",
+        hk_entry = tk.Entry(win, textvariable=var_hk, width=16,
+                            state="readonly", cursor="hand2",
+                            readonlybackground="#16375c", fg="#e0e8f0",
+                            font=("Segoe UI", 10))
+        hk_entry.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(8, 0))
+        tk.Label(win, text="ins Feld klicken, dann die Tasten drücken\n"
+                           "(z.B. Strg+Windows) — wird sofort angezeigt",
                  justify="left", bg="#0d2137", fg="#8fa8c8",
                  font=("Segoe UI", 9)).grid(row=3, column=0, columnspan=2,
                                             sticky="w", pady=(2, 4))
+
+        # -- Hotkey per Tastendruck aufnehmen (statt tippen) --
+        cap = {"hook": None, "pressed": set(), "name": ""}
+
+        def _cleanup_capture():
+            if cap["hook"] is not None:
+                try:
+                    keyboard.unhook(cap["hook"])
+                except (KeyError, ValueError):
+                    pass
+                cap["hook"] = None
+                _apply_hotkey(_cfg["hotkey"])         # PTT wieder scharf
+            hk_entry.config(cursor="hand2")
+
+        def _on_cap(e):                               # keyboard-Thread!
+            if e.event_type == "down":
+                cap["pressed"].add(e.name)
+                try:
+                    cap["name"] = keyboard.get_hotkey_name() or cap["name"]
+                except Exception:
+                    pass
+            else:
+                cap["pressed"].discard(e.name)
+                if not cap["pressed"] and cap["name"]:
+                    cap["pressed"].add("__done__")    # markiert: fertig
+
+        def _cap_poll():
+            if cap["hook"] is None:
+                return
+            if cap["name"]:
+                var_hk.set(cap["name"])
+            if "__done__" in cap["pressed"]:          # alle losgelassen
+                name = cap["name"]
+                _cleanup_capture()
+                var_hk.set(name)
+                return
+            win.after(60, _cap_poll)
+
+        def _start_capture(_e=None):
+            if cap["hook"] is not None:
+                return
+            _remove_hotkeys()                         # PTT pausieren
+            cap["pressed"] = set()
+            cap["name"] = ""
+            var_hk.set("… jetzt Tasten drücken")
+            hk_entry.config(cursor="watch")
+            cap["hook"] = keyboard.hook(_on_cap)
+            win.after(60, _cap_poll)
+
+        hk_entry.bind("<Button-1>", _start_capture)
         tk.Label(win, text="Hinweis: Vorschau kostet ca. 3× Kontingent\n"
                            "(frei: bis zu 8 h Audio am Tag).",
                  justify="left", bg="#0d2137", fg="#8fa8c8",
@@ -316,6 +367,9 @@ class _Overlay:
                                             sticky="w", pady=(2, 10))
 
         def save():
+            if cap["hook"] is not None:               # Aufnahme ohne Druck
+                _cleanup_capture()
+                var_hk.set(_cfg["hotkey"])
             _cfg["live_preview"] = bool(var_prev.get())
             try:
                 _cfg["interval"] = max(0.5, float(var_int.get()))
@@ -340,13 +394,18 @@ class _Overlay:
             _save_config()
             win.destroy()
 
+        def cancel():
+            _cleanup_capture()                        # hook weg, PTT zurueck
+            win.destroy()
+
         tk.Button(win, text="Speichern", command=save, bg="#16375c",
                   fg="#ffffff", activebackground="#3b82f6",
                   font=("Segoe UI", 10), bd=0, padx=14,
                   pady=4).grid(row=7, column=0, sticky="w")
-        tk.Button(win, text="Abbrechen", command=win.destroy, bg="#0d2137",
+        tk.Button(win, text="Abbrechen", command=cancel, bg="#0d2137",
                   fg="#8fa8c8", font=("Segoe UI", 10), bd=0, padx=10,
                   pady=4).grid(row=7, column=1, sticky="w", padx=(8, 0))
+        win.protocol("WM_DELETE_WINDOW", cancel)      # X schliesst sauber
         win.geometry("+%d+%d" % (self.root.winfo_x(),
                                  self.root.winfo_y() + 60))
 
@@ -459,6 +518,17 @@ def _type_into_active_field(text):
     if not text or not text.strip():
         return
     try:
+        # Hotkey-Modifier freigeben, BEVOR Strg+V geht. Sonst ist beim
+        # Loslassen eines Kombi-Hotkeys (z.B. Ctrl+Win) noch ein Modifier
+        # aktiv und aus "Strg+V" wird Win+V (Zwischenablage-Historie) o.ae.
+        # — genau das lieas Outlook & Co. "nichts einfuegen".
+        for mod in ("windows", "left windows", "right windows",
+                    "ctrl", "shift", "alt"):
+            try:
+                keyboard.release(mod)
+            except Exception:
+                pass
+        time.sleep(0.04)                              # Ziel-App Fokus geben
         if _set_clipboard(text):
             keyboard.send("ctrl+v")
             log.info("Ins Feld eingefuegt: %r", text)
@@ -577,15 +647,10 @@ def _release(_e):
 _hk_handles = []
 
 
-def _apply_hotkey(hk):
-    """Registriert Push-to-talk auf `hk`; entfernt vorherige Registrierung.
-
-    Einzeltaste ("f10"): Press/Release-Hooks direkt.
-    Kombi ("ctrl+f10"): add_hotkey fuer den Druck, Release-Hook auf der
-    letzten (Nicht-Modifier-)Taste. Wirft ValueError bei unbekannter Taste.
-    """
+def _remove_hotkeys():
+    """Entfernt die aktuelle Push-to-talk-Registrierung (fuer Re-Register
+    oder um waehrend der Hotkey-Aufnahme im Dialog nicht mitzuzaehlen)."""
     global _hk_handles
-    keyboard.parse_hotkey(hk)                         # validieren (ValueError)
     for kind, h in _hk_handles:
         try:
             if kind == "combo":
@@ -595,6 +660,18 @@ def _apply_hotkey(hk):
         except (KeyError, ValueError):
             pass
     _hk_handles = []
+
+
+def _apply_hotkey(hk):
+    """Registriert Push-to-talk auf `hk`; entfernt vorherige Registrierung.
+
+    Einzeltaste ("f10"): Press/Release-Hooks direkt.
+    Kombi ("ctrl+windows"): add_hotkey fuer den Druck, Release-Hook auf der
+    letzten (Nicht-Modifier-)Taste. Wirft ValueError bei unbekannter Taste.
+    """
+    global _hk_handles
+    keyboard.parse_hotkey(hk)                         # validieren (ValueError)
+    _remove_hotkeys()
     parts = [p.strip() for p in hk.split("+") if p.strip()]
     main_key = parts[-1]
     if len(parts) == 1:

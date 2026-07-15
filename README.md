@@ -1,7 +1,8 @@
 # Whisproq 🎙️
 
-**Push-to-talk dictation for Windows** — hold a hotkey (default **F10**),
-speak, release: the text appears in the **active text field** ~0.5 s later.
+**Push-to-talk dictation for Windows** — hold a hotkey (default
+**Ctrl+Win**), speak, release: the text appears in the **active text
+field** ~0.5 s later.
 Works system-wide: Word, browsers, WhatsApp, even terminals and CLI tools.
 
 The name says it all: **Whis**per + G**roq**. Transcription runs on Groq's
@@ -13,8 +14,9 @@ no GPU, no build step. The free quota is measured in audio time
 
 - **Types into whatever has focus** — Word, browser, WhatsApp, terminals
   and CLI tools; clipboard-based paste (umlaut-safe) with typing fallback
-- **Configurable hotkey** (default **F10**): single key or combos like
-  `ctrl+space`, changeable at runtime via the gear dialog ⚙ — no restart
+- **Configurable hotkey** (default **Ctrl+Win**): single key or combos;
+  set it in the gear dialog ⚙ by **clicking the field and pressing the
+  keys** — the combo is shown live and applied at runtime, no restart
 - **Guided Groq key setup**: the installer asks for the free API key with
   step-by-step instructions and opens the key page in your browser on
   request; later the key can be **changed in the gear dialog ⚙** — it is
@@ -102,7 +104,7 @@ Hold the hotkey → the overlay appears top-right → click **⚙**:
 |---|---|---|
 | Live preview | off | show interim transcript while speaking (costs ~3× quota) |
 | Interval (s) | 3 | refresh rate of the preview |
-| Hotkey | `f10` | single key or combo: `f4`, `ctrl+space`, `alt+d` … |
+| Hotkey | `ctrl+windows` | click the field and **press** the keys (single key or combo); shown live, e.g. `f4`, `ctrl+space`, `alt+d` |
 | Groq API key | — | change/rotate the key right here (masked field; stored in the user environment, empty = keep current) |
 
 Defaults live in the code; a fresh installation has **no** `config.json`.
@@ -115,7 +117,7 @@ documented example for the source/venv variant.) All keys:
 {
   "live_preview": false,
   "live_preview_interval_s": 3.0,
-  "hotkey": "f10",
+  "hotkey": "ctrl+windows",
   "language": "de",
   "prompt": "Deutsches Diktat. Gesprochene Satzzeichen: Komma, Punkt, ..."
 }
@@ -164,7 +166,7 @@ generates the IExpress SED with absolute paths and produces
 
 ## Troubleshooting
 
-- **Nothing happens on F10** → check `whisproq.log` (next to the program,
+- **Nothing happens on the hotkey** → check `whisproq.log` (next to the program,
   or `%LOCALAPPDATA%\Whisproq`). Most common cause: missing key →
   `setx GROQ_API_KEY <key>`.
 - **Groq error 401/403** → key invalid/rotated → set a new one. (403 with
@@ -185,13 +187,14 @@ generates the IExpress SED with absolute paths and produces
 
 ## Deutsch (Kurzanleitung)
 
-**Diktat per Taste:** In ein Textfeld klicken, **F10 gedrückt halten**,
-sprechen, **loslassen** → der Text erscheint nach ~0,5 s im aktiven Feld —
+**Diktat per Taste:** In ein Textfeld klicken, **Strg+Windows gedrückt
+halten**, sprechen, **loslassen** → der Text erscheint nach ~0,5 s im aktiven Feld —
 auch in Terminals. Erkennung über Groqs kostenlose Cloud (Whisper
 large-v3-turbo, bis zu 8 h Audio/Tag frei), Deutsch voreingestellt.
 
-**Vorteile auf einen Blick:** Hotkey frei konfigurierbar (Default F10,
-auch Kombis, ohne Neustart) · geführtes Setzen des Groq-Keys im Setup,
+**Vorteile auf einen Blick:** Hotkey frei konfigurierbar (Default
+Strg+Windows; im Zahnrad ins Feld klicken und Tasten drücken, ohne
+Neustart) · geführtes Setzen des Groq-Keys im Setup,
 **änderbar jederzeit im Zahnrad-Dialog ⚙** · Autostart
 eingebaut · **keine Python-Umgebung nötig** (Setup-EXE ist eigenständig,
 keine lokalen Modelle, keine GPU) · kostenlos mit großzügigem
