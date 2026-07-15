@@ -152,6 +152,25 @@ def _read_key():
         return ""
 
 
+def _store_key(key):
+    """Speichert den Key dorthin, wo _read_key() ihn findet: Prozess-Env +
+    HKCU\\Environment (wie setx), inkl. WM_SETTINGCHANGE-Broadcast, damit
+    auch neue Prozesse ihn ohne Neuanmeldung sehen. Key NIE ins Log!"""
+    os.environ["GROQ_API_KEY"] = key
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0,
+                            winreg.KEY_SET_VALUE) as reg:
+            winreg.SetValueEx(reg, "GROQ_API_KEY", 0, winreg.REG_SZ, key)
+        HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG = 0xFFFF, 0x1A, 0x2
+        ctypes.windll.user32.SendMessageTimeoutW(
+            HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment",
+            SMTO_ABORTIFHUNG, 5000, ctypes.byref(ctypes.c_ulong()))
+        log.info("GROQ_API_KEY ueber das Zahnrad aktualisiert.")
+    except OSError as e:
+        log.warning("Key nicht speicherbar: %s", e)
+
+
 def _groq_transcribe(wav_bytes, key):
     """Multipart-Upload an Groq ueber die Stdlib (kein requests noetig)."""
     boundary = "----whisproq" + uuid.uuid4().hex
@@ -283,6 +302,18 @@ class _Overlay:
                  justify="left", bg="#0d2137", fg="#8fa8c8",
                  font=("Segoe UI", 9)).grid(row=4, column=0, columnspan=2,
                                             sticky="w", pady=(4, 10))
+        var_key = tk.StringVar(value=_read_key())
+        tk.Label(win, text="Groq-API-Key:",
+                 **style).grid(row=5, column=0, sticky="w")
+        tk.Entry(win, textvariable=var_key, width=28, show="•",
+                 bg="#16375c", fg="#e0e8f0", insertbackground="#e0e8f0",
+                 font=("Segoe UI", 10)).grid(row=5, column=1, sticky="w",
+                                             padx=(8, 0))
+        tk.Label(win, text="beginnt mit gsk_… — kostenlos holen auf\n"
+                           "console.groq.com/keys (leer = unverändert)",
+                 justify="left", bg="#0d2137", fg="#8fa8c8",
+                 font=("Segoe UI", 9)).grid(row=6, column=0, columnspan=2,
+                                            sticky="w", pady=(2, 10))
 
         def save():
             _cfg["live_preview"] = bool(var_prev.get())
@@ -303,16 +334,19 @@ class _Overlay:
                                  "Beispiele: f10, f4, ctrl+space, alt+d",
                                  parent=win)
                     return
+            new_key = var_key.get().strip()
+            if new_key and new_key != _read_key():
+                _store_key(new_key)
             _save_config()
             win.destroy()
 
         tk.Button(win, text="Speichern", command=save, bg="#16375c",
                   fg="#ffffff", activebackground="#3b82f6",
                   font=("Segoe UI", 10), bd=0, padx=14,
-                  pady=4).grid(row=5, column=0, sticky="w")
+                  pady=4).grid(row=7, column=0, sticky="w")
         tk.Button(win, text="Abbrechen", command=win.destroy, bg="#0d2137",
                   fg="#8fa8c8", font=("Segoe UI", 10), bd=0, padx=10,
-                  pady=4).grid(row=5, column=1, sticky="w", padx=(8, 0))
+                  pady=4).grid(row=7, column=1, sticky="w", padx=(8, 0))
         win.geometry("+%d+%d" % (self.root.winfo_x(),
                                  self.root.winfo_y() + 60))
 

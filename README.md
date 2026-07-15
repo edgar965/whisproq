@@ -16,8 +16,8 @@ no GPU, no build step, no word quota.
   `ctrl+space`, changeable at runtime via the gear dialog ⚙ — no restart
 - **Guided Groq key setup**: the installer asks for the free API key with
   step-by-step instructions and opens the key page in your browser on
-  request; the key is re-read on every keypress, so a later
-  `setx GROQ_API_KEY` takes effect without restarting anything
+  request; later the key can be **changed in the gear dialog ⚙** — it is
+  re-read on every keypress, so changes take effect without restarting
 - **Autostart built in**: asked once at install, preserved across updates
 - **No Python environment needed**: the Setup EXE is fully self-contained —
   no interpreter, no local models, no GPU, no build step, ~50 MB RAM
@@ -98,6 +98,7 @@ Hold the hotkey → the overlay appears top-right → click **⚙**:
 | Live preview | off | show interim transcript while speaking (costs ~3× quota) |
 | Interval (s) | 3 | refresh rate of the preview |
 | Hotkey | `f10` | single key or combo: `f4`, `ctrl+space`, `alt+d` … |
+| Groq API key | — | change/rotate the key right here (masked field; stored in the user environment, empty = keep current) |
 
 Defaults live in the code; a fresh installation has **no** `config.json`.
 The file is created in `%LOCALAPPDATA%\Whisproq\config.json` the first
@@ -185,8 +186,8 @@ auch in Terminals. Erkennung über Groqs kostenlose Cloud (Whisper
 large-v3-turbo, ~2 h Audio/Tag frei), Deutsch voreingestellt.
 
 **Vorteile auf einen Blick:** Hotkey frei konfigurierbar (Default F10,
-auch Kombis, ohne Neustart) · geführtes Setzen des Groq-Keys direkt im
-Setup (mit Anleitung, öffnet die Key-Seite auf Wunsch) · Autostart
+auch Kombis, ohne Neustart) · geführtes Setzen des Groq-Keys im Setup,
+**änderbar jederzeit im Zahnrad-Dialog ⚙** · Autostart
 eingebaut · **keine Python-Umgebung nötig** (Setup-EXE ist eigenständig,
 keine lokalen Modelle, keine GPU) · kostenlos ohne Wort-Kontingent ·
 diktierte deutsche Satzzeichen · Halluzinations-Wächter statt
@@ -209,8 +210,8 @@ Wörter wie „Treffpunkt" bleiben heil.
 
 **Einstellungen:** Hotkey halten → Overlay oben rechts → **⚙**:
 Live-Vorschau an/aus, Intervall (Default 3 s), Hotkey frei wählbar
-(auch Kombis wie `ctrl+space`). Gespeichert in
-`%LOCALAPPDATA%\Whisproq\config.json`.
+(auch Kombis wie `ctrl+space`), **Groq-API-Key ändern**. Gespeichert in
+`%LOCALAPPDATA%\Whisproq\config.json` (der Key in der User-Umgebung).
 
 **Bei Problemen:** `whisproq.log` neben dem Programm ansehen — häufigste
 Ursache ist ein fehlender Key (`setx GROQ_API_KEY <key>`).
