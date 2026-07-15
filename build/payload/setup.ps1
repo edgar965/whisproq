@@ -1,5 +1,9 @@
-# Whisproq - Setup (laeuft aus der Setup-EXE heraus)
+# Whisproq - Setup (laeuft aus der Setup-EXE heraus).
+# WICHTIG: wird via `cmd /c start /wait` in einer EIGENEN Konsole gestartet -
+# IExpress selbst startet das Install-Programm sonst mit verstecktem Fenster
+# (gemessen: MainWindowHandle=0) und die Read-Host-Abfragen haengen unsichtbar.
 $ErrorActionPreference = "Stop"
+try { $host.UI.RawUI.WindowTitle = "Whisproq Setup" } catch {}
 $dst = Join-Path $env:LOCALAPPDATA "Whisproq"
 $ver = "0.1"   # muss zu __version__ in whisproq.py passen
 

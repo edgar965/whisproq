@@ -32,7 +32,7 @@ Class=IEXPRESS
 SEDVersion=3
 [Options]
 PackagePurpose=InstallApp
-ShowInstallProgramWindow=1
+ShowInstallProgramWindow=0
 HideExtractAnimation=1
 UseLongFileName=1
 InsideCompressed=0
@@ -55,7 +55,7 @@ DisplayLicense=
 FinishMessage=
 TargetName=$HERE\Install\Whisproq_Setup.exe
 FriendlyName=Whisproq Setup
-AppLaunched=powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1
+AppLaunched=cmd /c start /wait "Whisproq Setup" powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1
 PostInstallCmd=<None>
 AdminQuietInstCmd=
 UserQuietInstCmd=
