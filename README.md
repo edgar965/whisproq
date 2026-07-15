@@ -99,10 +99,11 @@ is never written to:
 }
 ```
 
-`prompt` is sent to Whisper as recognition context (vocabulary biasing):
-it makes the spoken punctuation words much more robust — without it, a
-far-field microphone easily mis-hears „Fragezeichen" as a fantasy word.
-Set it to `""` to disable, or adapt it to your own vocabulary.
+`prompt` (default **empty**) is sent to Whisper as recognition context.
+In field testing a punctuation-word prompt made some microphones flip
+whole utterances into foreign languages, so it ships disabled — treat it
+as an experimental knob. The last recording is kept as
+`last_utterance.wav` next to the log for evidence-based debugging.
 
 ### Other languages
 

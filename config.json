@@ -3,5 +3,5 @@
   "live_preview_interval_s": 3.0,
   "hotkey": "f10",
   "language": "de",
-  "prompt": "Deutsches Diktat. Gesprochene Satzzeichen: Komma, Punkt, Fragezeichen, Ausrufezeichen, Doppelpunkt, Semikolon, neue Zeile, neuer Absatz."
+  "prompt": ""
 }

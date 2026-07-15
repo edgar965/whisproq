@@ -64,14 +64,13 @@ import keyboard                                       # noqa: E402
 # falls vorhanden, sonst das Template.
 _CFG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", HERE), "Whisproq")
 _CFG_PATH = os.path.join(_CFG_DIR, "config.json")
-# Whisper-Prompt = Erkennungs-Kontext: biast das Modell auf die gesprochenen
-# Satzzeichen-Woerter. Ohne ihn verhoert ein Fernfeld-Mikro "Fragezeichen"
-# gern als Fantasiewort ("Tragitza"). Leerer String = kein Prompt.
-_PROMPT_DEFAULT = ("Deutsches Diktat. Gesprochene Satzzeichen: Komma, Punkt, "
-                   "Fragezeichen, Ausrufezeichen, Doppelpunkt, Semikolon, "
-                   "neue Zeile, neuer Absatz.")
+# Whisper-Prompt = Erkennungs-Kontext. Default LEER: Feldversuch 2026-07-15
+# zeigte, dass ein Satzzeichen-Woerter-Prompt bei Edgars Fernfeld-Mikro ab
+# ~RMS 400 KONSISTENT Islaendisch provozierte ("Ég testi það..." fuer
+# "Ich teste das..."); ohne Prompt gab es nie Fremdsprachen. Wer
+# experimentieren will, setzt "prompt" in config.json.
 _cfg = {"live_preview": False, "interval": 3.0, "hotkey": "f10",
-        "language": "de", "prompt": _PROMPT_DEFAULT}
+        "language": "de", "prompt": ""}
 for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
     try:
         # utf-8-sig: PowerShell (Setup-Update) schreibt UTF-8 MIT BOM
@@ -83,7 +82,7 @@ for _p in (_CFG_PATH, os.path.join(HERE, "config.json")):
                           or "f10")
         _cfg["language"] = (str(_raw.get("language", "de")).strip().lower()
                             or "de")
-        _cfg["prompt"] = str(_raw.get("prompt", _PROMPT_DEFAULT))
+        _cfg["prompt"] = str(_raw.get("prompt", ""))
         break
     except (OSError, ValueError):
         continue
@@ -513,8 +512,17 @@ def _release(_e):
 
     def work():
         try:
+            wav = _wav_bytes(pcm)
+            # letzte Aufnahme aufheben: bei Fehl-Erkennung kann damit
+            # mit dem ECHTEN Audio diagnostiziert werden (statt zu raten)
+            try:
+                with open(os.path.join(_log_dir(),
+                                       "last_utterance.wav"), "wb") as f:
+                    f.write(wav)
+            except OSError:
+                pass
             t0 = time.monotonic()
-            text = _groq_transcribe(_wav_bytes(pcm), _read_key())
+            text = _groq_transcribe(wav, _read_key())
             dt = time.monotonic() - t0
             log.info("Groq (%.2fs): %r", dt, text)
             if text:
