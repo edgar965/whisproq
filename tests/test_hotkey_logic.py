@@ -1,13 +1,12 @@
-r"""Deterministischer Test der Hotkey-Logik (_combo_handler) mit
-FAKE-Scancode-Events. Braucht KEINEN Tastatur-Treiber / keine echte
-Session — die Scancodes kommen aus keyboard.parse_hotkey, also exakt die,
-die auch in echten Events stehen. Deckt Einzeltaste und (Modifier-)Kombi
-ab. Ausfuehren: ..\venv\Scripts\python.exe tests\test_hotkey_logic.py
+r"""Deterministischer Test der Hotkey-Logik (_combo_handler) mit FAKE-Events,
+die echte (scan_code, name)-Paare tragen — inkl. der auf Edgars deutschem
+System gemessenen Werte (Windows-Taste sc=91 'linke windows', Strg sc=29
+'strg'), die parse_hotkey NICHT liefert. Braucht keine echte Session.
+Ausfuehren: ..\venv\Scripts\python.exe tests\test_hotkey_logic.py
 """
 import sys
 
 sys.path.insert(0, r"A:\repos\Whisproq")
-import keyboard
 import whisproq
 
 calls = {"press": 0, "release": 0}
@@ -32,13 +31,8 @@ whisproq._release = fake_release
 
 
 class Ev:
-    def __init__(self, sc, t):
-        self.scan_code, self.event_type = sc, t
-
-
-def scancodes(hk):
-    """Pro Taste EIN konkreter Scancode (der erste der Gruppe)."""
-    return [sorted(g)[0] for g in keyboard.parse_hotkey(hk)[0]]
+    def __init__(self, sc, name, t):
+        self.scan_code, self.name, self.event_type = sc, name, t
 
 
 def reset():
@@ -46,51 +40,64 @@ def reset():
     whisproq._st["on"] = False
 
 
-def check(name, hk, expect_press_after):
-    """Drueckt die Tasten der Reihe nach; expect_press_after = nach wie vielen
-    Tastendruecken _press kommen muss. Dann alle loslassen -> _release."""
+results = []
+
+
+def case(name, hk, keys):
+    """keys: Liste (scan_code, event_name) der Tasten der Kombi in
+    Druck-Reihenfolge. Prueft: alle druecken -> 1x press; letzte los -> 1x
+    release; Auto-Repeat startet nicht doppelt; zweiter Zyklus geht."""
     reset()
     h = whisproq._combo_handler(hk)
-    scs = scancodes(hk)
     ok = True
-    for i, sc in enumerate(scs, 1):
-        h(Ev(sc, "down"))
-        want = 1 if i >= expect_press_after else 0
+    for i, (sc, nm) in enumerate(keys, 1):
+        h(Ev(sc, nm, "down"))
+        want = 1 if i == len(keys) else 0
         if calls["press"] != want:
             ok = False
-    # Auto-Repeat der letzten Taste darf nicht doppelt starten
-    h(Ev(scs[-1], "down"))
+    h(Ev(*keys[-1], "down"))                 # Auto-Repeat letzte Taste
     if calls["press"] != 1:
         ok = False
-    # eine Taste loslassen -> stoppt
-    h(Ev(scs[-1], "up"))
+    h(Ev(*keys[-1], "up"))                    # eine los -> stop
     if calls["release"] != 1:
         ok = False
-    # zweiter Zyklus muss wieder gehen
-    for sc in scs:
-        h(Ev(sc, "down"))
+    for sc, nm in keys:                       # zweiter Zyklus
+        h(Ev(sc, nm, "down"))
     if calls["press"] != 2:
         ok = False
     print(f"[{'OK ' if ok else 'FAIL'}] {name} ({hk})")
-    return ok
+    results.append(ok)
 
 
-r = []
-r.append(check("Einzeltaste", "f10", 1))
-r.append(check("Strg+Windows", "ctrl+windows", 2))
-r.append(check("Strg+Shift", "ctrl+shift", 2))
-r.append(check("Strg+Leertaste", "ctrl+space", 2))
+# DER reale Bug-Fall: Windows-Taste liefert sc=91 (nicht 57435) + dt. Name
+case("Strg+Windows (echte Werte sc=91/'linke windows')", "ctrl+windows",
+     [(29, "strg"), (91, "linke windows")])
+# rechte Windows-Taste (sc=92)
+case("Strg+rechte Windows (sc=92)", "ctrl+windows",
+     [(29, "strg"), (92, "rechte windows")])
+# Einzeltaste
+case("Einzeltaste F10", "f10", [(68, "f10")])
+# andere Kombi, deutsche Namen
+case("Strg+Umschalt (dt.)", "ctrl+shift",
+     [(29, "strg"), (42, "umschalt")])
 
-# irrelevante Taste stoert nicht
+# reiner NAMENS-Match: scancode weicht voellig ab, nur der Name passt
 reset()
 h = whisproq._combo_handler("ctrl+windows")
-c, w = scancodes("ctrl+windows")
-h(Ev(999, "down"))                       # Fremdtaste
-h(Ev(c, "down"))
-h(Ev(w, "down"))
-extra_ok = calls["press"] == 1
-print(f"[{'OK ' if extra_ok else 'FAIL'}] Fremdtaste stoert nicht")
-r.append(extra_ok)
+h(Ev(29, "strg", "down"))
+h(Ev(99999, "linke windows", "down"))        # unbekannter sc, aber Name passt
+name_ok = calls["press"] == 1
+print(f"[{'OK ' if name_ok else 'FAIL'}] Match nur ueber Namen (sc unbekannt)")
+results.append(name_ok)
 
-print(f"\n{sum(r)}/{len(r)} bestanden")
-sys.exit(0 if all(r) else 1)
+# Gegenprobe: Fremdtaste startet nichts
+reset()
+h = whisproq._combo_handler("ctrl+windows")
+h(Ev(30, "a", "down"))
+h(Ev(29, "strg", "down"))
+none_ok = calls["press"] == 0                # Windows fehlt -> kein Start
+print(f"[{'OK ' if none_ok else 'FAIL'}] ohne Windows kein Start")
+results.append(none_ok)
+
+print(f"\n{sum(results)}/{len(results)} bestanden")
+sys.exit(0 if all(results) else 1)

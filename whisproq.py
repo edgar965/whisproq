@@ -664,24 +664,53 @@ def _remove_hotkeys():
 
 _hook_alive = False                                   # Diagnose: kam je ein Event?
 
+# Die keyboard-Lib ist bei einigen Tasten inkonsistent: parse_hotkey liefert
+# fuer die Windows-Taste die Scancodes 57435/57436, echte Events aber 91/92
+# (VK_LWIN/RWIN). Und Event-NAMEN sind lokalisiert ('strg', 'linke windows'
+# auf Deutsch). Darum matcht jede Hotkey-Taste ueber Scancode ODER Name, mit
+# bekannten Alternativen. (Gemessen an Edgars dt. System: sc=91 'linke windows'.)
+_SC_EXTRA = {frozenset({57435, 57436}): {91, 92}}     # windows: +VK-Scancodes
+_NAME_ALIASES = {
+    "ctrl": {"ctrl", "left ctrl", "right ctrl", "control",
+             "strg", "linke strg", "rechte strg", "steuerung"},
+    "alt": {"alt", "left alt", "right alt", "alt gr", "altgr",
+            "linke alt", "rechte alt"},
+    "shift": {"shift", "left shift", "right shift",
+              "umschalt", "linke umschalt", "rechte umschalt"},
+    "windows": {"windows", "left windows", "right windows", "win",
+                "linke windows", "rechte windows"},
+}
+
+
+def _token_spec(token):
+    """(scancodes, namen) einer einzelnen Hotkey-Taste — beide Achsen, damit
+    ein Event ueber Scancode ODER (lokalisierten) Namen zugeordnet wird."""
+    try:
+        scs = set(keyboard.parse_hotkey(token)[0][0])
+    except (ValueError, IndexError):
+        scs = set()
+    for base, extra in _SC_EXTRA.items():
+        if scs & base:
+            scs |= extra
+    return scs, _NAME_ALIASES.get(token, {token})
+
 
 def _combo_handler(hk):
     """Callback fuer keyboard.hook — einheitlich fuer Einzeltaste UND Kombi.
 
-    Arbeitet rein ueber SCANCODES aus keyboard.parse_hotkey (nicht ueber
-    Namen oder is_pressed): jede 'Gruppe' ist die Menge moeglicher Scancodes
-    einer Taste (z.B. ctrl = {29, 57373} links/rechts). Push-to-talk startet,
-    sobald JEDE Gruppe einen gedrueckten Scancode hat, und stoppt, sobald das
-    nicht mehr gilt.
+    Pro Hotkey-Taste ein (scancodes, namen)-Spec; ein Event gehoert zur Taste,
+    wenn sein Scancode ODER sein (klein geschriebener) Name passt. Push-to-talk
+    startet, sobald ALLE Tasten gedrueckt sind, und stoppt, sobald eine
+    losgelassen wird. Robust gegen keyboard-Lib-Inkonsistenzen (Windows-Taste
+    91 vs. 57435, lokalisierte Namen) und mit Fake-Events voll testbar."""
+    tokens = [t.strip().lower() for t in hk.split("+") if t.strip()]
+    specs = [_token_spec(t) for t in tokens]
+    pressed = [False] * len(specs)
 
-    Warum nicht keyboard.add_hotkey/is_pressed: add_hotkey feuert bei reinen
-    Modifier-Kombis (ctrl+windows) NICHT, und is_pressed('windows') ist bei
-    Mehrfach-Scancode-Namen unzuverlaessig. Scancode-Matching ist
-    deterministisch und mit Fake-Events voll testbar."""
-    combo = keyboard.parse_hotkey(hk)[0]              # ((sc,...), (sc,...), …)
-    groups = [set(g) for g in combo]
-    relevant = set().union(*groups) if groups else set()
-    down = set()
+    def which(e):
+        nm = (e.name or "").lower()
+        return [i for i, (scs, names) in enumerate(specs)
+                if e.scan_code in scs or nm in names]
 
     def on_evt(e):
         global _hook_alive
@@ -689,17 +718,18 @@ def _combo_handler(hk):
             _hook_alive = True
             log.info("Tastatur-Hook empfaengt Events (erste Taste sc=%s)",
                      e.scan_code)
-        sc = e.scan_code
-        if sc not in relevant:
+        idxs = which(e)
+        if not idxs:
             return
         if e.event_type == "down":
-            if sc not in down:
-                down.add(sc)
-                if all(g & down for g in groups):     # jede Taste gedrueckt
-                    _press(None)
+            for i in idxs:
+                pressed[i] = True
+            if all(pressed):
+                _press(None)
         else:
-            down.discard(sc)
-            if _st["on"] and not all(g & down for g in groups):
+            for i in idxs:
+                pressed[i] = False
+            if _st["on"] and not all(pressed):
                 _release(None)
 
     return on_evt
