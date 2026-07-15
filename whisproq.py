@@ -662,49 +662,57 @@ def _remove_hotkeys():
     _hk_handles = []
 
 
-def _combo_handler(parts, is_pressed=None):
-    """Callback fuer keyboard.hook: startet die Aufnahme, sobald ALLE
-    Tasten der Kombi gedrueckt sind, und stoppt, sobald eine losgelassen
-    wird. Noetig weil keyboard.add_hotkey bei reinen Modifier-Kombis
-    (z.B. 'ctrl+windows' — beide sind Modifier, keine Trigger-Taste) NICHT
-    feuert.
+_hook_alive = False                                   # Diagnose: kam je ein Event?
 
-    Prueft ueber keyboard.is_pressed (loest die Taste ueber Scancodes auf,
-    unabhaengig vom Event-Namen — 'windows' ist links wie rechts korrekt).
-    is_pressed ist injizierbar, damit die Logik ohne echte
-    Tastendruck-Simulation testbar bleibt."""
-    check = is_pressed or keyboard.is_pressed
+
+def _combo_handler(hk):
+    """Callback fuer keyboard.hook — einheitlich fuer Einzeltaste UND Kombi.
+
+    Arbeitet rein ueber SCANCODES aus keyboard.parse_hotkey (nicht ueber
+    Namen oder is_pressed): jede 'Gruppe' ist die Menge moeglicher Scancodes
+    einer Taste (z.B. ctrl = {29, 57373} links/rechts). Push-to-talk startet,
+    sobald JEDE Gruppe einen gedrueckten Scancode hat, und stoppt, sobald das
+    nicht mehr gilt.
+
+    Warum nicht keyboard.add_hotkey/is_pressed: add_hotkey feuert bei reinen
+    Modifier-Kombis (ctrl+windows) NICHT, und is_pressed('windows') ist bei
+    Mehrfach-Scancode-Namen unzuverlaessig. Scancode-Matching ist
+    deterministisch und mit Fake-Events voll testbar."""
+    combo = keyboard.parse_hotkey(hk)[0]              # ((sc,...), (sc,...), …)
+    groups = [set(g) for g in combo]
+    relevant = set().union(*groups) if groups else set()
+    down = set()
 
     def on_evt(e):
-        try:
-            allp = all(check(p) for p in parts)
-        except Exception:
+        global _hook_alive
+        if not _hook_alive:                           # einmalige Ferndiagnose
+            _hook_alive = True
+            log.info("Tastatur-Hook empfaengt Events (erste Taste sc=%s)",
+                     e.scan_code)
+        sc = e.scan_code
+        if sc not in relevant:
             return
-        if allp and e.event_type == "down":          # letzte Taste kam runter
-            _press(None)
-        elif not allp and _st["on"]:                 # eine ging hoch
-            _release(None)
+        if e.event_type == "down":
+            if sc not in down:
+                down.add(sc)
+                if all(g & down for g in groups):     # jede Taste gedrueckt
+                    _press(None)
+        else:
+            down.discard(sc)
+            if _st["on"] and not all(g & down for g in groups):
+                _release(None)
 
     return on_evt
 
 
 def _apply_hotkey(hk):
-    """Registriert Push-to-talk auf `hk`; entfernt vorherige Registrierung.
-
-    Einzeltaste ("f10"): Press/Release-Hooks direkt.
-    Kombi ("ctrl+windows"): eigener Zustandstracker ueber keyboard.hook
-    (siehe _combo_handler). Wirft ValueError bei unbekannter Taste.
-    """
+    """Registriert Push-to-talk auf `hk` via keyboard.hook (Scancode-Matching,
+    siehe _combo_handler); entfernt vorherige Registrierung. Wirft ValueError
+    bei unbekannter Taste."""
     global _hk_handles
     keyboard.parse_hotkey(hk)                         # validieren (ValueError)
     _remove_hotkeys()
-    parts = [p.strip() for p in hk.split("+") if p.strip()]
-    if len(parts) == 1:
-        main_key = parts[-1]
-        _hk_handles.append(("hook", keyboard.on_press_key(main_key, _press)))
-        _hk_handles.append(("hook", keyboard.on_release_key(main_key, _release)))
-    else:
-        _hk_handles.append(("hook", keyboard.hook(_combo_handler(parts))))
+    _hk_handles.append(("hook", keyboard.hook(_combo_handler(hk))))
     log.info("Hotkey aktiv: %s", hk)
 
 
