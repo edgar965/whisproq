@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 try { $host.UI.RawUI.WindowTitle = "Whisproq Setup" } catch {}
 $dst = Join-Path $env:LOCALAPPDATA "Whisproq"
-$ver = "0.24"  # muss zu __version__ in whisproq.py passen
+$ver = "0.25"  # muss zu __version__ in whisproq.py passen
 
 Write-Host ""
 Write-Host "=== Whisproq $ver - Setup ===" -ForegroundColor Cyan
@@ -86,15 +86,64 @@ $sizeKB = [int]((Get-ChildItem $dst -Recurse | Measure-Object Length -Sum).Sum /
 Set-ItemProperty -Path $un -Name "EstimatedSize" -Value $sizeKB -Type DWord
 Write-Host "In 'Installierte Apps' registriert (deinstallierbar)." -ForegroundColor Green
 
-# --- Autostart + sofort starten ---
-# Update: bestehende Autostart-Entscheidung uebernehmen (Eintrag vorhanden ->
-# bleibt, zeigt auf die neue EXE; nicht vorhanden -> bleibt weg, keine Frage).
+# --- Startmenue-Eintrag (manuell startbar ueber "Alle Apps" -> Whisproq) ---
+$lnkPath = Join-Path ([Environment]::GetFolderPath("Programs")) "Whisproq.lnk"
+try {
+    $ws = New-Object -ComObject WScript.Shell
+    $sc = $ws.CreateShortcut($lnkPath)
+    $sc.TargetPath = $exe
+    $sc.WorkingDirectory = $dst
+    $sc.IconLocation = $exe
+    $sc.Description = "Whisproq - Push-to-talk-Diktat (Groq)"
+    $sc.Save()
+    Write-Host "Startmenue-Eintrag angelegt (Alle Apps -> Whisproq)." -ForegroundColor Green
+} catch {
+    Write-Host "Startmenue-Eintrag nicht anlegbar: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# --- Autostart als GEPLANTE AUFGABE (nicht Run-Key) ---
+# Der Run-Key feuert beim Windows-"Schnellstart" (Fast Startup / Hybrid-Boot)
+# zu frueh und ohne Verzoegerung, bevor Tastatur-/Audio-Treiber re-initialisiert
+# sind -> Whisproq startete dann teils gar nicht. Eine Anmelde-getriggerte
+# geplante Aufgabe mit kurzer Verzoegerung ueberlebt den Schnellstart robust
+# und laeuft auch im Akkubetrieb (Laptop!).
 $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$hadAuto = $null -ne (Get-ItemProperty -Path $runKey -Name "Whisproq" -ErrorAction SilentlyContinue)
+
+function Set-WhisproqAutostart {
+    param([string]$Exe)
+    # Alten Run-Key-Autostart auf die Aufgabe migrieren
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -ErrorAction SilentlyContinue
+    try {
+        $action = New-ScheduledTaskAction -Execute $Exe
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+        $trigger.Delay = "PT15S"                       # Treiber nach Boot bereit
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
+            -DontStopIfGoingOnBatteries -StartWhenAvailable `
+            -ExecutionTimeLimit ([TimeSpan]::Zero)
+        $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME `
+            -LogonType Interactive -RunLevel Limited
+        Register-ScheduledTask -TaskName "Whisproq" -Action $action `
+            -Trigger $trigger -Settings $settings -Principal $principal `
+            -Description "Startet Whisproq bei der Anmeldung (Schnellstart-fest)." `
+            -Force | Out-Null
+        return $true
+    } catch {
+        # Faellt die Aufgaben-Registrierung aus, wenigstens Run-Key setzen
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -Value ('"' + $Exe + '"')
+        Write-Host "Geplante Aufgabe fehlgeschlagen ($($_.Exception.Message)) - Run-Key als Fallback." -ForegroundColor Yellow
+        return $false
+    }
+}
+
+# hatte der User bisher Autostart (alter Run-Key ODER schon eine Aufgabe)?
+$oldRun = Get-ItemProperty -Path $runKey -Name "Whisproq" -ErrorAction SilentlyContinue
+$oldTask = Get-ScheduledTask -TaskName "Whisproq" -ErrorAction SilentlyContinue
+$hadAuto = ($null -ne $oldRun) -or ($null -ne $oldTask)
+
 if ($update) {
     if ($hadAuto) {
-        Set-ItemProperty -Path $runKey -Name "Whisproq" -Value ('"' + $exe + '"')
-        Write-Host "Update: Autostart beibehalten." -ForegroundColor Green
+        $ok = Set-WhisproqAutostart -Exe $exe
+        if ($ok) { Write-Host "Update: Autostart auf geplante Aufgabe umgestellt (Schnellstart-fest)." -ForegroundColor Green }
     } else {
         Write-Host "Update: kein Autostart (wie bisher)."
     }
@@ -102,18 +151,20 @@ if ($update) {
     Write-Host ""
     $auto = Read-Host "Whisproq beim Windows-Start automatisch starten? (j/n)"
     if ($auto -match "^[jJyY]") {
-        Set-ItemProperty -Path $runKey -Name "Whisproq" -Value ('"' + $exe + '"')
-        Write-Host "Autostart eingetragen." -ForegroundColor Green
+        $ok = Set-WhisproqAutostart -Exe $exe
+        if ($ok) { Write-Host "Autostart eingerichtet (geplante Aufgabe, Schnellstart-fest)." -ForegroundColor Green }
     } else {
         Remove-ItemProperty -Path $runKey -Name "Whisproq" -ErrorAction SilentlyContinue
-        Write-Host "Kein Autostart - manuell starten: $exe"
+        Unregister-ScheduledTask -TaskName "Whisproq" -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Host "Kein Autostart - manuell ueber Startmenue (Whisproq) oder: $exe"
     }
 }
 Start-Process -FilePath $exe
 Write-Host ""
 Write-Host "=== Fertig! ===" -ForegroundColor Cyan
-Write-Host "F10 HALTEN -> sprechen -> loslassen. Satzzeichen mitdiktieren:"
+Write-Host "Hotkey HALTEN -> sprechen -> loslassen. Satzzeichen mitdiktieren:"
 Write-Host "  'Komma' , 'Punkt' . 'Fragezeichen' ? 'Ausrufezeichen' ! 'neue Zeile'"
+Write-Host "Manuell starten: Startmenue -> Alle Apps -> Whisproq"
 Write-Host "Deinstallieren: Windows-Einstellungen -> Apps -> Whisproq"
 Write-Host "Log: $dst\whisproq.log"
 Start-Sleep -Seconds 6

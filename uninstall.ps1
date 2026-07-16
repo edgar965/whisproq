@@ -17,8 +17,11 @@ Get-CimInstance Win32_Process -Filter "Name like 'pythonw%'" |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Start-Sleep -Milliseconds 800
 
-# 2) Autostart + "Installierte Apps"-Eintrag entfernen
+# 2) Autostart (Run-Key + geplante Aufgabe), Startmenue-Eintrag und
+#    "Installierte Apps"-Eintrag entfernen
 Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq"
+Unregister-ScheduledTask -TaskName "Whisproq" -Confirm:$false
+Remove-Item -Path (Join-Path ([Environment]::GetFolderPath("Programs")) "Whisproq.lnk") -Force
 Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Whisproq" -Recurse
 
 # 3) Programmordner loeschen (PowerShell hat das Skript bereits komplett
