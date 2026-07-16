@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 try { $host.UI.RawUI.WindowTitle = "Whisproq Setup" } catch {}
 $dst = Join-Path $env:LOCALAPPDATA "Whisproq"
-$ver = "0.25"  # muss zu __version__ in whisproq.py passen
+$ver = "0.26"  # muss zu __version__ in whisproq.py passen
 
 Write-Host ""
 Write-Host "=== Whisproq $ver - Setup ===" -ForegroundColor Cyan
@@ -114,7 +114,13 @@ function Set-WhisproqAutostart {
     # Alten Run-Key-Autostart auf die Aufgabe migrieren
     Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Whisproq" -ErrorAction SilentlyContinue
     try {
-        $action = New-ScheduledTaskAction -Execute $Exe
+        # WICHTIG: ueber die Shell (explorer.exe) starten, NICHT die EXE direkt.
+        # Ein direkt vom Aufgabenplaner erzeugter Prozess haengt nicht sauber an
+        # der interaktiven Eingabe-Sitzung -> der globale Low-Level-Tastatur-Hook
+        # (WH_KEYBOARD_LL) wird zwar installiert, empfaengt aber KEINE Tasten.
+        # explorer.exe erzeugt Whisproq im Shell-/Sitzungskontext -> Hook lebt.
+        # Der zuverlaessige Anmelde-Trigger (Schnellstart-fest) bleibt unveraendert.
+        $action = New-ScheduledTaskAction -Execute "explorer.exe" -Argument ('"' + $Exe + '"')
         $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
         $trigger.Delay = "PT15S"                       # Treiber nach Boot bereit
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
