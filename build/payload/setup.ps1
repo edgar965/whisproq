@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 try { $host.UI.RawUI.WindowTitle = "Whisproq Setup" } catch {}
 $dst = Join-Path $env:LOCALAPPDATA "Whisproq"
-$ver = "0.26"  # muss zu __version__ in whisproq.py passen
+$ver = "0.27"  # muss zu __version__ in whisproq.py passen
 
 Write-Host ""
 Write-Host "=== Whisproq $ver - Setup ===" -ForegroundColor Cyan

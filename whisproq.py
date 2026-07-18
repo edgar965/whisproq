@@ -36,7 +36,7 @@ import wave
 from array import array
 from logging.handlers import RotatingFileHandler
 
-__version__ = "0.26"
+__version__ = "0.27"
 
 # Gefroren (PyInstaller-EXE) oder als Skript? Bestimmt Basisverzeichnis.
 if getattr(sys, "frozen", False):
@@ -540,7 +540,84 @@ def _type_into_active_field(text):
 
 
 # --- Push-to-talk: halten -> aufnehmen (int16 roh), loslassen -> Groq ---
-_st = {"on": False, "stream": None, "frames": []}
+# _st haelt den Aufnahmezustand. Das Oeffnen/Schliessen des Mikrofon-Streams
+# laeuft AUSSCHLIESSLICH in Worker-Threads, nie im Tastatur-Listener-Thread:
+# sd.RawInputStream.start()/stop() koennen im Audio-Subsystem (v.a. kurz nach
+# dem Boot) haengen. Im Listener-Thread wuerde das die komplette Hotkey-
+# Verarbeitung dauerhaft blockieren — Symptom (2026-07-18): der Low-Level-Hook
+# empfaengt zwar weiter OS-Events, aber kein Tastendruck erreicht mehr
+# _press/_release, das Diktat ist tot bis zum Neustart.
+#   session:  laufende Nummer je Druck. Ein verspaeteter Oeffnen-Worker
+#             erkennt daran, dass "seine" Aufnahme nicht mehr aktuell ist,
+#             und verwirft den Stream, statt ihn einer neuen Sitzung
+#             unterzuschieben.
+#   opening:  ein Oeffnen laeuft gerade. Neue Druecke werden ignoriert, bis
+#             es fertig ist — ausser es haengt laenger als _MIC_OPEN_TIMEOUT,
+#             dann wird es aufgegeben und neu versucht (Selbstheilung).
+_st = {"on": False, "stream": None, "frames": [],
+       "opening": False, "opening_since": 0.0, "session": 0}
+_st_lock = threading.Lock()
+_MIC_OPEN_TIMEOUT = 5.0        # s: haengendes Mikrofon-Oeffnen danach aufgeben
+
+
+def _open_stream(session):
+    """Oeffnet + startet den Mikrofon-Stream in einem WORKER-Thread und
+    uebergibt ihn unter Lock an _st, sofern die Sitzung noch aktuell ist.
+    Wurde inzwischen losgelassen / eine neue Sitzung gestartet / trat ein
+    Fehler auf, wird der Stream sofort wieder geschlossen. Blockiert nie den
+    Tastatur-Listener-Thread."""
+    def cb(indata, frames, t, s):
+        # Nur fuer die eigene, noch laufende Sitzung puffern: verhindert, dass
+        # ein noch nicht geschlossener Alt-Stream in eine neue Aufnahme leakt.
+        if _st["on"] and _st["session"] == session:
+            _st["frames"].append(bytes(indata))
+
+    stream = None
+    err = None
+    try:
+        # RawInputStream liefert rohe int16-Bytes -> kein numpy noetig
+        stream = sd.RawInputStream(samplerate=SR, channels=1,
+                                   dtype="int16", callback=cb)
+        stream.start()
+    except Exception as e:                            # noqa: BLE001
+        err = e
+
+    with _st_lock:
+        current = _st["on"] and _st["session"] == session
+        if _st["session"] == session:                 # nur der AKTUELLE Opener
+            _st["opening"] = False                     # raeumt sein eigenes Flag
+        owned = err is None and current
+        if owned:
+            _st["stream"] = stream
+        elif err is not None and current:
+            _st["on"] = False                         # Mikrofon-Fehler -> aus
+
+    if err is not None:
+        log.warning("PTT: Mikrofon-Fehler: %s", err)
+        if OVERLAY is not None and current:
+            OVERLAY.flash("Mikrofon-Fehler — erneut versuchen")
+        return
+    if not owned:                                     # losgelassen/veraltet
+        _close_stream(stream)
+        return
+
+    log.info("PTT: Aufnahme laeuft")
+    if OVERLAY is not None:
+        OVERLAY.set_text("● Aufnahme … (%s halten)" % _cfg["hotkey"].upper())
+        if _cfg["live_preview"]:
+            threading.Thread(target=_interim_loop, daemon=True).start()
+
+
+def _close_stream(stream):
+    """stop() + close() eines Streams — im Worker-Thread, da beides (selten)
+    im Audio-Subsystem blockieren kann und den Listener-Thread nie treffen darf."""
+    if stream is None:
+        return
+    try:
+        stream.stop()
+        stream.close()
+    except Exception:
+        pass
 
 
 def _press(_e):
@@ -550,44 +627,42 @@ def _press(_e):
     if not key:
         log.warning("PTT: GROQ_API_KEY fehlt (setx GROQ_API_KEY <key>)")
         return
-    _st["frames"] = []
-    _st["on"] = True
-
-    def cb(indata, frames, t, s):
-        if _st["on"]:
-            _st["frames"].append(bytes(indata))
-
-    try:
-        # RawInputStream liefert rohe int16-Bytes -> kein numpy noetig
-        _st["stream"] = sd.RawInputStream(samplerate=SR, channels=1,
-                                          dtype="int16", callback=cb)
-        _st["stream"].start()
-        log.info("PTT: Aufnahme laeuft")
-        if OVERLAY is not None:
-            OVERLAY.set_text("● Aufnahme … (%s halten)"
-                             % _cfg["hotkey"].upper())
-            if _cfg["live_preview"]:
-                threading.Thread(target=_interim_loop, daemon=True).start()
-    except Exception as e:
-        _st["on"] = False
+    with _st_lock:
+        if _st["opening"]:
+            # Vorheriges Mikrofon-Oeffnen laeuft noch — normal in Millisekunden
+            # durch. Haengt es (Audio-Subsystem nach Boot) laenger als
+            # _MIC_OPEN_TIMEOUT, geben wir es auf und starten neu; der alte
+            # Worker verwirft seinen Stream ueber die Sitzungs-Nummer.
+            if time.monotonic() - _st["opening_since"] < _MIC_OPEN_TIMEOUT:
+                log.warning("PTT: Mikrofon oeffnet noch — Druck ignoriert")
+                return
+            log.warning("PTT: Mikrofon-Oeffnen haengt (>%.0fs) — neuer Versuch",
+                        _MIC_OPEN_TIMEOUT)
+        _st["session"] += 1
+        session = _st["session"]
+        _st["frames"] = []
         _st["stream"] = None
-        log.warning("PTT: Mikrofon-Fehler: %s", e)
+        _st["on"] = True
+        _st["opening"] = True
+        _st["opening_since"] = time.monotonic()
+    threading.Thread(target=_open_stream, args=(session,), daemon=True).start()
 
 
 def _release(_e):
     if not _st["on"]:
         return
-    _st["on"] = False
-    stream = _st["stream"]
-    _st["stream"] = None
-    try:
-        if stream:
-            stream.stop()
-            stream.close()
-    except Exception:
-        pass
+    _st["on"] = False                                 # cb puffert ab jetzt nicht
+    with _st_lock:
+        stream = _st["stream"]
+        _st["stream"] = None
     frames = _st["frames"]
     _st["frames"] = []
+    # Stream im Worker schliessen (stop()/close() kann blockieren, s.
+    # _open_stream). Ist er None, oeffnet ihn ein Worker gerade noch — der
+    # sieht dann on=False und schliesst ihn selbst (owned=False).
+    if stream is not None:
+        threading.Thread(target=_close_stream, args=(stream,),
+                         daemon=True).start()
     if not frames:
         log.info("PTT: keine Audiodaten")
         if OVERLAY is not None:
