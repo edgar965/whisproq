@@ -27,6 +27,7 @@ import io
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -36,7 +37,7 @@ import wave
 from array import array
 from logging.handlers import RotatingFileHandler
 
-__version__ = "0.27"
+__version__ = "0.28"
 
 # Gefroren (PyInstaller-EXE) oder als Skript? Bestimmt Basisverzeichnis.
 if getattr(sys, "frozen", False):
@@ -46,6 +47,8 @@ else:
 sys.path.insert(0, HERE)
 import punctuation                                    # noqa: E402
 import guards                                         # noqa: E402
+from singleinstance import SingleInstance             # noqa: E402
+from hookwatchdog import HookWatchdog                 # noqa: E402
 
 import sounddevice as sd                              # noqa: E402
 import keyboard                                       # noqa: E402
@@ -64,6 +67,8 @@ import keyboard                                       # noqa: E402
 # falls vorhanden, sonst das Template.
 _CFG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", HERE), "Whisproq")
 _CFG_PATH = os.path.join(_CFG_DIR, "config.json")
+# Heartbeat der aktiven Instanz (Ebene 1, s. singleinstance.py)
+_PID_PATH = os.path.join(_CFG_DIR, "whisproq.pid")
 # Whisper-Prompt = Erkennungs-Kontext. Default LEER: Feldversuch 2026-07-15
 # zeigte, dass ein Satzzeichen-Woerter-Prompt bei Edgars Fernfeld-Mikro ab
 # ~RMS 400 KONSISTENT Islaendisch provozierte ("Ég testi það..." fuer
@@ -127,14 +132,11 @@ logging.basicConfig(level=logging.INFO, handlers=[_handler],
                     format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger("whisproq")
 
-# --- Einzelinstanz (zwei Instanzen wuerden doppelt tippen) ---
-# Nach der Log-Initialisierung, damit die zweite Instanz NICHT stumm stirbt,
-# sondern nachvollziehbar ins Log schreibt, warum sie sich beendet.
-_k32.CreateMutexW(None, False, "Whisproq_SingleInstance")
-if _k32.GetLastError() == 183:                        # ERROR_ALREADY_EXISTS
-    log.warning("Whisproq laeuft bereits (Mutex belegt) - "
-                "diese zweite Instanz beendet sich.")
-    sys.exit(0)
+# --- Einzelinstanz ---
+# Frueher lief das hier auf Modulebene (CreateMutexW + sys.exit). Jetzt in
+# main() ueber die selbstheilende SingleInstance (Ebene 1): so triggert das
+# blosse Importieren (z.B. in den Tests) keine Instanz-Logik mehr, und ein
+# HAENGENDER Vorgaenger sperrt keinen Neustart mehr aus.
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 SR = 16000
@@ -725,7 +727,8 @@ _hk_handles = []
 def _remove_hotkeys():
     """Entfernt die aktuelle Push-to-talk-Registrierung (fuer Re-Register
     oder um waehrend der Hotkey-Aufnahme im Dialog nicht mitzuzaehlen)."""
-    global _hk_handles
+    global _hk_handles, _ptt_armed
+    _ptt_armed = False                                # Watchdog pausieren
     for kind, h in _hk_handles:
         try:
             if kind == "combo":
@@ -738,6 +741,13 @@ def _remove_hotkeys():
 
 
 _hook_alive = False                                   # Diagnose: kam je ein Event?
+# Watchdog-Signale (Ebene 2): _hook_busy_since = time.monotonic() waehrend ein
+# Callback laeuft, sonst 0.0 (Float-Zuweisung ist unter dem GIL atomar, kein
+# Lock noetig). _ptt_armed = ist die Push-to-talk-Registrierung gerade scharf?
+# (Waehrend der Hotkey-Aufnahme im Zahnrad ist sie bewusst pausiert — dann darf
+# der Watchdog nicht faelschlich "neu anmelden".)
+_hook_busy_since = 0.0
+_ptt_armed = False
 
 # Die keyboard-Lib ist bei einigen Tasten inkonsistent: parse_hotkey liefert
 # fuer die Windows-Taste die Scancodes 57435/57436, echte Events aber 91/92
@@ -788,24 +798,28 @@ def _combo_handler(hk):
                 if e.scan_code in scs or nm in names]
 
     def on_evt(e):
-        global _hook_alive
-        if not _hook_alive:                           # einmalige Ferndiagnose
-            _hook_alive = True
-            log.info("Tastatur-Hook empfaengt Events (erste Taste sc=%s)",
-                     e.scan_code)
-        idxs = which(e)
-        if not idxs:
-            return
-        if e.event_type == "down":
-            for i in idxs:
-                pressed[i] = True
-            if all(pressed):
-                _press(None)
-        else:
-            for i in idxs:
-                pressed[i] = False
-            if _st["on"] and not all(pressed):
-                _release(None)
+        global _hook_alive, _hook_busy_since
+        _hook_busy_since = time.monotonic()           # Watchdog: Callback laeuft
+        try:
+            if not _hook_alive:                       # einmalige Ferndiagnose
+                _hook_alive = True
+                log.info("Tastatur-Hook empfaengt Events (erste Taste sc=%s)",
+                         e.scan_code)
+            idxs = which(e)
+            if not idxs:
+                return
+            if e.event_type == "down":
+                for i in idxs:
+                    pressed[i] = True
+                if all(pressed):
+                    _press(None)
+            else:
+                for i in idxs:
+                    pressed[i] = False
+                if _st["on"] and not all(pressed):
+                    _release(None)
+        finally:
+            _hook_busy_since = 0.0                     # Callback fertig
 
     return on_evt
 
@@ -814,20 +828,59 @@ def _apply_hotkey(hk):
     """Registriert Push-to-talk auf `hk` via keyboard.hook (Scancode-Matching,
     siehe _combo_handler); entfernt vorherige Registrierung. Wirft ValueError
     bei unbekannter Taste."""
-    global _hk_handles
+    global _hk_handles, _ptt_armed
     keyboard.parse_hotkey(hk)                         # validieren (ValueError)
     _remove_hotkeys()
     _hk_handles.append(("hook", keyboard.hook(_combo_handler(hk))))
+    _ptt_armed = True                                 # PTT scharf -> Watchdog aktiv
     log.info("Hotkey aktiv: %s", hk)
+
+
+def _hotkey_ok():
+    """Ist die Push-to-talk-Kette registriert und der keyboard-Listener aktiv?
+    Waehrend einer bewussten Pause (Hotkey-Aufnahme) True, damit der Watchdog
+    nicht dazwischenfunkt."""
+    if not _ptt_armed:
+        return True
+    if not _hk_handles:
+        return False
+    lst = getattr(keyboard, "_listener", None)
+    return lst is not None and getattr(lst, "listening", False)
+
+
+def _spawn_fresh():
+    """Startet eine frische, losgeloeste Whisproq-Instanz (fuer den Watchdog-
+    Neustart). Die neue Instanz uebernimmt via SingleInstance und raeumt die
+    haengende weg."""
+    if getattr(sys, "frozen", False):
+        args = [sys.executable]
+    else:
+        args = [sys.executable, os.path.join(HERE, "whisproq.py")]
+    DETACHED_PROCESS = 0x00000008
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    subprocess.Popen(args, close_fds=True,
+                     creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
 
 
 def main():
     global OVERLAY
+    # Ebene 1: selbstheilende Einzelinstanz. Ein GESUNDER Vorgaenger stoppt uns
+    # (Doppelstart verhindert); ein HAENGENDER wird weggeraeumt und wir uebernehmen.
+    instance = SingleInstance("Whisproq_SingleInstance", _PID_PATH, log)
+    if not instance.acquire():
+        sys.exit(0)
     _apply_hotkey(_cfg["hotkey"])
     log.info("Whisproq %s bereit (Key: %s, Live-Vorschau: %s, Hotkey: %s, "
              "Intervall: %.1fs, Sprache: %s)", __version__,
              bool(_read_key()), _cfg["live_preview"], _cfg["hotkey"],
              _cfg["interval"], _cfg["language"])
+    # Ebene 2: Watchdog haelt den Heartbeat frisch (Ebene 1) und heilt die
+    # Hotkey-Kette — Neuanmeldung bei verlorener Registrierung, harter Neustart
+    # bei echtem Callback-Haenger.
+    HookWatchdog(log, heartbeat=instance.beat, is_hotkey_ok=_hotkey_ok,
+                 reinstall=lambda: _apply_hotkey(_cfg["hotkey"]),
+                 hook_busy_since=lambda: _hook_busy_since,
+                 restart=_spawn_fresh).start()
     OVERLAY = _Overlay()                              # Tk braucht den Main-Thread
     OVERLAY.run()
 
