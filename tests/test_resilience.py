@@ -109,7 +109,7 @@ class _Spy(HookWatchdog):
 state = {"beats": [], "reinstalled": 0}
 
 
-def make(busy, hotkey_ok):
+def make(busy, hotkey_ok, open_stuck=0.0):
     _Spy.reexec_called = False
     state["beats"] = []
     state["reinstalled"] = 0
@@ -120,8 +120,10 @@ def make(busy, hotkey_ok):
         reinstall=lambda: state.__setitem__("reinstalled",
                                             state["reinstalled"] + 1),
         hook_busy_since=lambda: busy,
+        open_stuck_since=lambda: open_stuck,
         restart=lambda: None,
         stuck_after=8.0,
+        open_stuck_after=15.0,
     )
 
 
@@ -148,6 +150,42 @@ check("Watchdog Haenger -> Heartbeat False", state["beats"] == [False])
 w = make(busy=time.monotonic(), hotkey_ok=True)
 w._tick()
 check("Watchdog frischer Callback -> kein re-exec", not _Spy.reexec_called)
+
+# Mikrofon-Open haengt seit langem (D3 nach S0ix-Resume) -> re-exec (v0.29-Lueckenschluss)
+w = make(busy=0.0, hotkey_ok=True, open_stuck=time.monotonic() - 30)
+w._tick()
+check("Watchdog Open-Haenger -> re-exec", _Spy.reexec_called)
+check("Watchdog Open-Haenger -> Heartbeat False", state["beats"] == [False])
+
+# frisch laufender Open (gerade gestartet) ist KEIN Haenger
+w = make(busy=0.0, hotkey_ok=True, open_stuck=time.monotonic())
+w._tick()
+check("Watchdog frischer Open -> kein re-exec", not _Spy.reexec_called)
+
+# --- Open-Retry im Worker (Ebene b): 1. Versuch scheitert, 2. klappt ---
+import whisproq                                       # noqa: E402
+
+class _FakeStream:
+    def start(self): pass
+    def stop(self): pass
+    def close(self): pass
+
+_open_calls = {"n": 0}
+
+def _fake_raw(*a, **k):
+    _open_calls["n"] += 1
+    if _open_calls["n"] < 2:                          # erster Open scheitert
+        raise RuntimeError("device not ready (D3)")
+    return _FakeStream()
+
+whisproq.sd.RawInputStream = _fake_raw
+whisproq._MIC_OPEN_RETRY_DELAY = 0.0                  # Test nicht bremsen
+whisproq._st.update({"on": True, "session": 7, "opening": True,
+                     "opening_since": 0.0, "frames": [], "stream": None})
+whisproq._open_stream(7)
+check("Open-Retry: zweiter Versuch erfolgreich", _open_calls["n"] == 2)
+check("Open-Retry: Stream gesetzt", whisproq._st["stream"] is not None)
+check("Open-Retry: opening geraeumt", whisproq._st["opening"] is False)
 
 # --- Aufraeumen ---
 for h in _held:

@@ -37,7 +37,7 @@ import wave
 from array import array
 from logging.handlers import RotatingFileHandler
 
-__version__ = "0.28"
+__version__ = "0.29"
 
 # Gefroren (PyInstaller-EXE) oder als Skript? Bestimmt Basisverzeichnis.
 if getattr(sys, "frozen", False):
@@ -560,6 +560,12 @@ _st = {"on": False, "stream": None, "frames": [],
        "opening": False, "opening_since": 0.0, "session": 0}
 _st_lock = threading.Lock()
 _MIC_OPEN_TIMEOUT = 5.0        # s: haengendes Mikrofon-Oeffnen danach aufgeben
+# Geraeteunabhaengiger Open-Retry: nach einem Aufwachen aus Modern Standby
+# (S0ix) ist das Onboard-Mikro kurz noch im Low-Power-Zustand (D3) und der
+# erste Open wirft/klemmt. Ein paar kurze Wiederholungen holen es zurueck, ohne
+# das Geraet kennen oder OS-Energieeinstellungen aendern zu muessen.
+_MIC_OPEN_TRIES = 3
+_MIC_OPEN_RETRY_DELAY = 0.4    # s zwischen den Open-Versuchen
 
 
 def _open_stream(session):
@@ -576,13 +582,23 @@ def _open_stream(session):
 
     stream = None
     err = None
-    try:
-        # RawInputStream liefert rohe int16-Bytes -> kein numpy noetig
-        stream = sd.RawInputStream(samplerate=SR, channels=1,
-                                   dtype="int16", callback=cb)
-        stream.start()
-    except Exception as e:                            # noqa: BLE001
-        err = e
+    for attempt in range(_MIC_OPEN_TRIES):
+        if not (_st["on"] and _st["session"] == session):
+            break                                     # losgelassen/veraltet
+        try:
+            # RawInputStream liefert rohe int16-Bytes -> kein numpy noetig
+            stream = sd.RawInputStream(samplerate=SR, channels=1,
+                                       dtype="int16", callback=cb)
+            stream.start()
+            err = None
+            break
+        except Exception as e:                        # noqa: BLE001
+            err = e
+            stream = None
+            log.warning("PTT: Mikrofon-Open Versuch %d/%d fehlgeschlagen: %s",
+                        attempt + 1, _MIC_OPEN_TRIES, e)
+            if attempt + 1 < _MIC_OPEN_TRIES:
+                time.sleep(_MIC_OPEN_RETRY_DELAY)     # DMIC aus D3 wecken lassen
 
     with _st_lock:
         current = _st["on"] and _st["session"] == session
@@ -848,6 +864,15 @@ def _hotkey_ok():
     return lst is not None and getattr(lst, "listening", False)
 
 
+def _open_stuck_since():
+    """monotone Startzeit eines gerade laufenden Mikrofon-Opens, sonst 0.0 —
+    Watchdog-Signal (Ebene 2): ein Open haengt (D3/Audio-Subsystem nach S0ix-
+    Resume), wenn `opening` ungewoehnlich lange True bleibt. Snapshot unter Lock
+    (free-threaded 3.14t: getrennte Reads ohne Lock waeren kein Momentwert)."""
+    with _st_lock:
+        return _st["opening_since"] if _st["opening"] else 0.0
+
+
 def _spawn_fresh():
     """Startet eine frische, losgeloeste Whisproq-Instanz (fuer den Watchdog-
     Neustart). Die neue Instanz uebernimmt via SingleInstance und raeumt die
@@ -880,6 +905,7 @@ def main():
     HookWatchdog(log, heartbeat=instance.beat, is_hotkey_ok=_hotkey_ok,
                  reinstall=lambda: _apply_hotkey(_cfg["hotkey"]),
                  hook_busy_since=lambda: _hook_busy_since,
+                 open_stuck_since=_open_stuck_since,
                  restart=_spawn_fresh).start()
     OVERLAY = _Overlay()                              # Tk braucht den Main-Thread
     OVERLAY.run()
