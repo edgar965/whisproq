@@ -37,7 +37,7 @@ import wave
 from array import array
 from logging.handlers import RotatingFileHandler
 
-__version__ = "0.29"
+__version__ = "0.30"
 
 # Gefroren (PyInstaller-EXE) oder als Skript? Bestimmt Basisverzeichnis.
 if getattr(sys, "frozen", False):
