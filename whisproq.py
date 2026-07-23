@@ -49,6 +49,7 @@ import punctuation                                    # noqa: E402
 import guards                                         # noqa: E402
 from singleinstance import SingleInstance             # noqa: E402
 from hookwatchdog import HookWatchdog                 # noqa: E402
+from hookliveness import KeyboardLiveness             # noqa: E402
 
 import sounddevice as sd                              # noqa: E402
 import keyboard                                       # noqa: E402
@@ -765,6 +766,14 @@ _hook_alive = False                                   # Diagnose: kam je ein Eve
 _hook_busy_since = 0.0
 _ptt_armed = False
 
+# Ebene-3-Signale: _lib_last_evt_ts = monotone Zeit des letzten Events, das die
+# keyboard-Lib an on_evt AUSGELIEFERT hat. LIVENESS = unabhaengige Hook (Zeuge
+# fuer real gedrueckte Tasten). Divergieren beide (reale Tasten, aber die Lib
+# schweigt), ist die Lib-Hook still von Windows entfernt worden -> Neustart.
+_lib_last_evt_ts = 0.0
+LIVENESS = None
+_LIVENESS_RECENT = 5.0                                 # "gerade real getippt": <=5s
+
 # Die keyboard-Lib ist bei einigen Tasten inkonsistent: parse_hotkey liefert
 # fuer die Windows-Taste die Scancodes 57435/57436, echte Events aber 91/92
 # (VK_LWIN/RWIN). Und Event-NAMEN sind lokalisiert ('strg', 'linke windows'
@@ -814,8 +823,10 @@ def _combo_handler(hk):
                 if e.scan_code in scs or nm in names]
 
     def on_evt(e):
-        global _hook_alive, _hook_busy_since
-        _hook_busy_since = time.monotonic()           # Watchdog: Callback laeuft
+        global _hook_alive, _hook_busy_since, _lib_last_evt_ts
+        now = time.monotonic()
+        _hook_busy_since = now                         # Watchdog: Callback laeuft
+        _lib_last_evt_ts = now                         # Ebene 3: Lib lieferte aus
         try:
             if not _hook_alive:                       # einmalige Ferndiagnose
                 _hook_alive = True
@@ -873,6 +884,23 @@ def _open_stuck_since():
         return _st["opening_since"] if _st["opening"] else 0.0
 
 
+def _hook_dead_secs():
+    """Watchdog-Signal (Ebene 3): Sekunden, seit denen die keyboard-Lib nichts
+    mehr ausgeliefert hat, OBWOHL gerade real getippt wird (unabhaengige Ebene-3-
+    Hook sah eine Taste in den letzten `_LIVENESS_RECENT` Sekunden). 0.0, wenn
+    Ebene 3 inaktiv ist oder gerade nicht real getippt wird — dann schlaegt im
+    Leerlauf nichts an. Ist der Rueckgabewert gross, ist die Lib-Hook tot."""
+    if LIVENESS is None:
+        return 0.0
+    now = time.monotonic()
+    os_ts = LIVENESS.last_key_ts()
+    if not os_ts or (now - os_ts) > _LIVENESS_RECENT:
+        return 0.0                                    # kein reales Tippen -> n.a.
+    # Real wird getippt. Wie lange liefert die Lib schon nichts? (Gesund:
+    # ~0, weil on_evt bei JEDER Taste feuert und _lib_last_evt_ts setzt.)
+    return now - _lib_last_evt_ts
+
+
 def _spawn_fresh():
     """Startet eine frische, losgeloeste Whisproq-Instanz (fuer den Watchdog-
     Neustart). Die neue Instanz uebernimmt via SingleInstance und raeumt die
@@ -899,13 +927,23 @@ def main():
              "Intervall: %.1fs, Sprache: %s)", __version__,
              bool(_read_key()), _cfg["live_preview"], _cfg["hotkey"],
              _cfg["interval"], _cfg["language"])
+    # Ebene 3: unabhaengiges Tastatur-Lebenszeichen starten. Baseline setzen,
+    # damit "seit Start nichts ausgeliefert" als Zeit-seit-Start zaehlt (nicht
+    # als riesiger Wert aus 0.0). Die erste real gedrueckte Taste aktualisiert
+    # _lib_last_evt_ts im gesunden Fall sofort.
+    global LIVENESS, _lib_last_evt_ts
+    _lib_last_evt_ts = time.monotonic()
+    LIVENESS = KeyboardLiveness(log)
+    LIVENESS.start()
     # Ebene 2: Watchdog haelt den Heartbeat frisch (Ebene 1) und heilt die
     # Hotkey-Kette — Neuanmeldung bei verlorener Registrierung, harter Neustart
-    # bei echtem Callback-Haenger.
+    # bei echtem Callback-Haenger (hook_busy), steckendem Mikrofon-Open
+    # (open_stuck) ODER still von Windows entfernter Hook (hook_dead, Ebene 3).
     HookWatchdog(log, heartbeat=instance.beat, is_hotkey_ok=_hotkey_ok,
                  reinstall=lambda: _apply_hotkey(_cfg["hotkey"]),
                  hook_busy_since=lambda: _hook_busy_since,
                  open_stuck_since=_open_stuck_since,
+                 hook_dead_secs=_hook_dead_secs,
                  restart=_spawn_fresh).start()
     OVERLAY = _Overlay()                              # Tk braucht den Main-Thread
     OVERLAY.run()

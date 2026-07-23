@@ -30,17 +30,21 @@ import time
 class HookWatchdog:
     def __init__(self, log, *, heartbeat, is_hotkey_ok, reinstall,
                  hook_busy_since, restart, open_stuck_since=None,
-                 interval=5.0, stuck_after=8.0, open_stuck_after=15.0):
+                 hook_dead_secs=None,
+                 interval=5.0, stuck_after=8.0, open_stuck_after=15.0,
+                 dead_after=12.0):
         self._log = log
         self._heartbeat = heartbeat            # callable(healthy: bool)
         self._is_hotkey_ok = is_hotkey_ok      # callable() -> bool
         self._reinstall = reinstall            # callable() (Hotkey neu anmelden)
         self._hook_busy_since = hook_busy_since  # callable() -> float (0=frei)
         self._open_stuck_since = open_stuck_since  # callable()->float | None
+        self._hook_dead_secs = hook_dead_secs  # callable()->float | None (Ebene 3)
         self._restart = restart                # callable() (frische Instanz spawnen)
         self._interval = float(interval)
         self._stuck_after = float(stuck_after)
         self._open_stuck_after = float(open_stuck_after)
+        self._dead_after = float(dead_after)
 
     def start(self):
         t = threading.Thread(target=self._loop, name="whisproq-watchdog",
@@ -88,6 +92,14 @@ class HookWatchdog:
             op = self._open_stuck_since()
             if op and (now - op) > self._open_stuck_after:
                 return "Mikrofon-Open haengt seit %.0fs" % (now - op)
+        # (3) Windows hat die Lib-Hook still entfernt: reale Tasten kommen an
+        # (unabhaengige Ebene-3-Hook), aber die keyboard-Lib liefert nichts mehr.
+        # Kein Callback laeuft je -> (1)/(2) sind blind. Nur Neustart hilft.
+        if self._hook_dead_secs is not None:
+            dead = self._hook_dead_secs()
+            if dead and dead > self._dead_after:
+                return ("Tastatur-Hook liefert trotz realer Tasten nichts "
+                        "(still entfernt) seit %.0fs" % dead)
         return None
 
     def _reexec(self):
